@@ -36,12 +36,15 @@ const nextConfig: NextConfig = {
             key: "Content-Security-Policy",
             value: [
               "default-src 'self'",
-              "script-src 'self' 'unsafe-inline'",   // Next.js needs inline scripts
-              "style-src 'self' 'unsafe-inline'",    // Tailwind CSS
-              "img-src 'self' data: https://avatars.githubusercontent.com https://raw.githubusercontent.com",
-              "connect-src 'self' https://api.github.com",
+              "script-src 'self' 'unsafe-inline'",
+              "style-src 'self' 'unsafe-inline'",
+              "img-src 'self' data: blob: https://avatars.githubusercontent.com https://raw.githubusercontent.com",
+              "media-src 'self' blob:",
+              "frame-src 'self' blob:",
+              "connect-src 'self' https://api.github.com https://raw.githubusercontent.com",
               "font-src 'self'",
               "frame-ancestors 'none'",
+              "worker-src 'self' blob:",
             ].join("; "),
           },
         ],

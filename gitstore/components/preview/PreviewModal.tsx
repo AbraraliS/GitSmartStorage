@@ -49,11 +49,17 @@ export function PreviewModal({ files, currentIndex, onClose, onNavigate }: Previ
 
       try {
         const res = await fetch(`/api/files/download?hash=${encodeURIComponent(file.hash)}`);
-        if (!res.ok) throw new Error("Failed to fetch preview content");
+        if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`);
 
         let buffer = await res.arrayBuffer();
-        if (file.encryptionKey && file.iv && !file.iv.includes(":")) {
-          buffer = await decryptChunk(buffer, file.iv, file.encryptionKey);
+        if (file.encryptionKey && file.iv) {
+          const ivs = file.iv.split(":");
+          const iv = ivs[0];
+          try {
+            buffer = await decryptChunk(buffer, iv, file.encryptionKey);
+          } catch {
+            throw new Error("Decryption failed — the file may be corrupted or the key is invalid");
+          }
         }
 
         const blob = new Blob([buffer], { type: file.type || "application/octet-stream" });
@@ -72,13 +78,42 @@ export function PreviewModal({ files, currentIndex, onClose, onNavigate }: Previ
           setTextContent(text);
 
           if (!file.type.includes("markdown") && !file.type.startsWith("text/markdown")) {
-            const { codeToHtml } = await import("shiki");
-            const lang = extensionFromName(file.name);
-            const html = await codeToHtml(text, {
-              lang,
-              theme: "github-dark",
-            });
-            if (active) setCodeHtml(html);
+            try {
+              const { codeToHtml } = await import("shiki");
+              const ext = extensionFromName(file.name).toLowerCase();
+              const LANG_MAP: Record<string, string> = {
+                js: "javascript",
+                ts: "typescript",
+                tsx: "tsx",
+                jsx: "jsx",
+                py: "python",
+                rb: "ruby",
+                rs: "rust",
+                go: "go",
+                java: "java",
+                cpp: "cpp",
+                c: "c",
+                cs: "csharp",
+                html: "html",
+                css: "css",
+                json: "json",
+                xml: "xml",
+                sh: "bash",
+                yml: "yaml",
+                yaml: "yaml",
+                md: "markdown",
+                txt: "text",
+                sql: "sql",
+              };
+              const lang = LANG_MAP[ext] ?? "text";
+              const html = await codeToHtml(text, {
+                lang,
+                theme: "github-dark",
+              });
+              if (active) setCodeHtml(html);
+            } catch {
+              if (active) setCodeHtml(null);
+            }
           }
         }
 
@@ -234,7 +269,19 @@ export function PreviewModal({ files, currentIndex, onClose, onNavigate }: Previ
         {loading ? (
           <div className="h-64 w-64 animate-pulse rounded-xl bg-gray-700" />
         ) : error ? (
-          <p className="text-red-300">{error}</p>
+          <div className="flex max-w-sm flex-col items-center gap-3 text-center">
+            <p className="text-sm font-medium text-red-400">Preview failed</p>
+            <p className="text-xs text-gray-400">{error}</p>
+            {objectUrl && (
+              <a
+                href={objectUrl}
+                download={file.name}
+                className="rounded-md bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-500"
+              >
+                Download instead
+              </a>
+            )}
+          </div>
         ) : (
           content
         )}
