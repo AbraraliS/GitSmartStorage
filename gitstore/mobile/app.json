@@ -1,0 +1,26 @@
+{
+  "expo": {
+    "name": "GitStore",
+    "slug": "gitstore",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "backgroundColor": "#0f172a"
+    },
+    "scheme": "gitstore",
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.gitstore.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#0f172a"
+      },
+      "package": "com.gitstore.app"
+    },
+    "plugins": ["expo-router", "expo-secure-store"]
+  }
+}
