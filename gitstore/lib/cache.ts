@@ -38,6 +38,17 @@ const DB_NAME = "gitstore-cache";
 const DB_VERSION = 1;
 const INDEX_STORE = "index";
 const BLOB_STORE = "blobs";
+const INDEX_KEY_PREFIX = "main:";
+
+let currentUserLogin = "anonymous";
+
+function keyForUser(login = currentUserLogin): string {
+  return `${INDEX_KEY_PREFIX}${login || "anonymous"}`;
+}
+
+export function setCurrentUser(login: string): void {
+  currentUserLogin = login || "anonymous";
+}
 
 let _db: IDBPDatabase | null = null;
 
@@ -59,7 +70,7 @@ async function getDB(): Promise<IDBPDatabase> {
 export async function l2GetIndex(): Promise<GitStoreIndex | null> {
   try {
     const db = await getDB();
-    const raw = await db.get(INDEX_STORE, "main");
+    const raw = await db.get(INDEX_STORE, keyForUser());
     if (!raw) return null;
     return raw as GitStoreIndex;
   } catch {
@@ -70,7 +81,7 @@ export async function l2GetIndex(): Promise<GitStoreIndex | null> {
 export async function l2SetIndex(index: GitStoreIndex): Promise<void> {
   try {
     const db = await getDB();
-    await db.put(INDEX_STORE, index, "main");
+    await db.put(INDEX_STORE, index, keyForUser());
   } catch {
     // IDB write failures are non-fatal
   }
@@ -79,7 +90,24 @@ export async function l2SetIndex(index: GitStoreIndex): Promise<void> {
 export async function l2InvalidateIndex(): Promise<void> {
   try {
     const db = await getDB();
-    await db.delete(INDEX_STORE, "main");
+    await db.delete(INDEX_STORE, keyForUser());
+  } catch {}
+}
+
+export async function clearCacheForUser(login: string): Promise<void> {
+  try {
+    const db = await getDB();
+    await db.delete(INDEX_STORE, keyForUser(login));
+  } catch {}
+  l1Invalidate();
+}
+
+export async function clearAllCaches(): Promise<void> {
+  l1Invalidate();
+  try {
+    const db = await getDB();
+    await db.delete(INDEX_STORE, keyForUser());
+    await db.clear(BLOB_STORE);
   } catch {}
 }
 

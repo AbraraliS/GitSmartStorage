@@ -10,6 +10,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         params: {
           // Request repo + user scopes so we can create repos and read/write files
           scope: "repo user read:user user:email",
+          // Force account chooser on re-login so users can switch GitHub accounts cleanly.
+          login: "",
+          // Best-effort account selection prompt for providers that support OIDC-style prompt.
+          prompt: "select_account",
         },
       },
     }),
@@ -24,6 +28,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         // Generate a cryptographically random CSRF token bound to this session.
         // Never log or expose this value in error messages.
         token.csrfToken = crypto.randomUUID();
+      }
+      if (!token.login && profile) {
+        token.login = (profile as { login?: string })?.login;
       }
       return token;
     },

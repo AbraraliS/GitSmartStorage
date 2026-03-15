@@ -12,7 +12,6 @@ import {
   XIcon,
 } from "lucide-react";
 import type { FileRecord } from "@/types";
-import { decryptChunk } from "@/lib/upload";
 import { formatBytes } from "@/lib/format";
 
 interface PreviewModalProps {
@@ -44,23 +43,19 @@ export function PreviewModal({ files, currentIndex, onClose, onNavigate }: Previ
     const load = async () => {
       setLoading(true);
       setError(null);
+      setObjectUrl(null);
       setTextContent(null);
       setCodeHtml(null);
 
       try {
         const res = await fetch(`/api/files/download?hash=${encodeURIComponent(file.hash)}`);
-        if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`);
-
-        let buffer = await res.arrayBuffer();
-        if (file.encryptionKey && file.iv) {
-          const ivs = file.iv.split(":");
-          const iv = ivs[0];
-          try {
-            buffer = await decryptChunk(buffer, iv, file.encryptionKey);
-          } catch {
-            throw new Error("Decryption failed — the file may be corrupted or the key is invalid");
-          }
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+          throw new Error((errData as { error?: string }).error ?? `Failed to fetch: ${res.status}`);
         }
+
+        // Server now returns decrypted data directly
+        const buffer = await res.arrayBuffer();
 
         const blob = new Blob([buffer], { type: file.type || "application/octet-stream" });
         localUrl = URL.createObjectURL(blob);
@@ -117,8 +112,9 @@ export function PreviewModal({ files, currentIndex, onClose, onNavigate }: Previ
           }
         }
 
-        setObjectUrl(localUrl);
+        if (active) setObjectUrl(localUrl);
       } catch (err) {
+        if (localUrl) URL.revokeObjectURL(localUrl);
         setError(err instanceof Error ? err.message : "Failed to load preview");
       } finally {
         if (active) setLoading(false);
@@ -243,11 +239,14 @@ export function PreviewModal({ files, currentIndex, onClose, onNavigate }: Previ
           <span className="hidden text-xs text-gray-300 md:inline">{formatBytes(file.size)}</span>
         </div>
         <div className="flex items-center gap-2">
-          {objectUrl && (
-            <a href={objectUrl} download={file.name} className="rounded p-2 hover:bg-white/10" aria-label="Download">
-              <DownloadIcon className="h-4 w-4" />
-            </a>
-          )}
+          <a
+            href={`/api/files/download?hash=${encodeURIComponent(file.hash)}`}
+            download={file.name}
+            className="rounded p-2 hover:bg-white/10"
+            aria-label="Download"
+          >
+            <DownloadIcon className="h-4 w-4" />
+          </a>
           <button type="button" onClick={onClose} className="rounded p-2 hover:bg-white/10" aria-label="Close preview">
             <XIcon className="h-4 w-4" />
           </button>
@@ -272,15 +271,13 @@ export function PreviewModal({ files, currentIndex, onClose, onNavigate }: Previ
           <div className="flex max-w-sm flex-col items-center gap-3 text-center">
             <p className="text-sm font-medium text-red-400">Preview failed</p>
             <p className="text-xs text-gray-400">{error}</p>
-            {objectUrl && (
-              <a
-                href={objectUrl}
-                download={file.name}
-                className="rounded-md bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-500"
-              >
-                Download instead
-              </a>
-            )}
+            <a
+              href={`/api/files/download?hash=${encodeURIComponent(file.hash)}`}
+              download={file.name}
+              className="rounded-md bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-500"
+            >
+              Download instead
+            </a>
           </div>
         ) : (
           content

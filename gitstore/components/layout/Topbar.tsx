@@ -6,6 +6,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
 import { SearchBar } from "@/components/files/SearchBar";
 import { Breadcrumb } from "@/components/files/Breadcrumb";
+import { clearAllCaches } from "@/lib/cache";
 
 export function Topbar() {
   const params = useSearchParams();
@@ -87,7 +88,10 @@ export function Topbar() {
               <button
                 type="button"
                 className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800"
-                onClick={() => signOut({ callbackUrl: "/" })}
+                onClick={async () => {
+                  await clearAllCaches();
+                  await signOut({ callbackUrl: "/" });
+                }}
               >
                 Sign out
               </button>

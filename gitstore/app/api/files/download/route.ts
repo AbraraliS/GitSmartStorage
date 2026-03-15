@@ -1,7 +1,7 @@
 /**
  * app/api/files/download/route.ts
  * GET /api/files/download?hash=  — proxy-download a file through the server.
- * Always goes through the server so the GitHub token is never exposed.
+ * Decrypts each chunk server-side using the AES-256-GCM key from index.json.
  * Security: auth → assertOwner → Zod validation → rate limit.
  */
 
@@ -10,6 +10,39 @@ import { z } from "zod";
 import { auth } from "@/auth";
 import { createOctokit, readRemoteIndex, assertOwner } from "@/lib/github";
 import { checkRateLimit } from "@/lib/ratelimit";
+
+// Server-side AES-256-GCM decryption using Node.js crypto
+async function decryptBuffer(
+  encryptedData: Buffer,
+  base64Key: string,
+  base64Iv: string
+): Promise<Buffer> {
+  const { subtle } = globalThis.crypto;
+
+  // Import the key
+  const rawKey = Uint8Array.from(Buffer.from(base64Key, "base64"));
+  const cryptoKey = await subtle.importKey(
+    "raw",
+    rawKey,
+    { name: "AES-GCM" },
+    false,
+    ["decrypt"]
+  );
+
+  // Decode the IV
+  const iv = Uint8Array.from(Buffer.from(base64Iv, "base64"));
+
+  const cipherBytes = Uint8Array.from(encryptedData);
+
+  // Decrypt
+  const decrypted = await subtle.decrypt(
+    { name: "AES-GCM", iv },
+    cryptoKey,
+    cipherBytes
+  );
+
+  return Buffer.from(decrypted);
+}
 
 export async function GET(req: NextRequest) {
   // 1. Auth
@@ -52,11 +85,13 @@ export async function GET(req: NextRequest) {
     const nodeInfo = remote.content.nodes[record.node];
     if (!nodeInfo) return NextResponse.json({ error: "Node not found" }, { status: 404 });
 
-    // For chunked files, download all chunks, reassemble, and stream
+    // Build list of chunks and their IVs
     const paths = record.chunks?.length ? record.chunks : [record.path];
-    const buffers: Buffer[] = [];
+    const ivList = record.iv ? record.iv.split(":") : [];
+    const decryptedBuffers: Buffer[] = [];
 
-    for (const path of paths) {
+    for (let i = 0; i < paths.length; i++) {
+      const path = paths[i];
       const { data } = await octokit.repos.getContent({
         owner: login,
         repo:  nodeInfo.repo,
@@ -67,15 +102,31 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ error: "Invalid file data" }, { status: 500 });
       }
 
-      buffers.push(Buffer.from(data.content, "base64"));
+      // GitHub returns content as base64 — decode to get the raw encrypted bytes
+      const encryptedBuffer = Buffer.from(data.content.replace(/\n/g, ""), "base64");
+
+      // Decrypt if encryption key and IV are present
+      if (record.encryptionKey && ivList.length > 0) {
+        const iv = ivList[i] ?? ivList[0]; // fallback to first IV if fewer IVs than chunks
+        try {
+          const decrypted = await decryptBuffer(encryptedBuffer, record.encryptionKey, iv);
+          decryptedBuffers.push(decrypted);
+        } catch (decryptErr) {
+          console.error(`[download] Decryption failed for chunk ${i}:`, decryptErr);
+          return NextResponse.json({ error: "Decryption failed" }, { status: 500 });
+        }
+      } else {
+        // No encryption — use raw buffer
+        decryptedBuffers.push(encryptedBuffer);
+      }
     }
 
-    const combined = Buffer.concat(buffers);
+    const combined = Buffer.concat(decryptedBuffers);
 
     return new NextResponse(combined, {
       headers: {
         "Content-Type":        record.type || "application/octet-stream",
-        "Content-Disposition": `attachment; filename="${record.name}"`,
+        "Content-Disposition": `inline; filename="${record.name}"`,
         "Content-Length":      combined.length.toString(),
         "Cache-Control":       "private, max-age=86400",
         "X-Content-Type-Options": "nosniff",

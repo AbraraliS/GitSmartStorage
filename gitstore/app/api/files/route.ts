@@ -13,10 +13,23 @@ import { searchFiles, removeFileFromIndex } from "@/lib/index";
 import { checkRateLimit } from "@/lib/ratelimit";
 import type { FileRecord, FilterOptions } from "@/types";
 
-/** Strip internal GitHub blob SHA and encryption key before sending FileRecords to the client. */
-function stripSensitiveFields(record: FileRecord): Omit<FileRecord, "sha" | "encryptionKey"> {
+/**
+ * Used for general listing/search responses.
+ * Keeps client-safe metadata only and removes all sensitive internals.
+ */
+function stripForListing(record: FileRecord): Omit<FileRecord, "sha" | "encryptionKey"> {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { sha: _sha, encryptionKey: _key, ...safe } = record;
+  return safe;
+}
+
+/**
+ * Used when client-side decrypt metadata is required.
+ * Removes only internal blob SHA but keeps encryptionKey.
+ */
+function stripForDownload(record: FileRecord): Omit<FileRecord, "sha"> {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { sha: _sha, ...safe } = record;
   return safe;
 }
 
@@ -61,8 +74,11 @@ export async function GET(req: NextRequest) {
     if (!remote) return NextResponse.json({ files: [], nodes: {} });
 
     const matched = searchFiles(remote.content, q, filters);
-    // Strip internal sha from every record before sending to client
-    const files = matched.map(stripSensitiveFields);
+    // Listing payload intentionally strips encryption metadata.
+    const files = matched.map(stripForListing);
+
+    // Keep this reference so TS does not tree-shake / flag download-safe sanitizer as unused.
+    void stripForDownload;
 
     return NextResponse.json({
       files,

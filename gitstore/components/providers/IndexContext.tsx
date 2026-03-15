@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  useRef,
   createContext,
   useCallback,
   useContext,
@@ -9,8 +10,14 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { useSession } from "next-auth/react";
 import type { GitStoreIndex } from "@/types";
-import { loadIndex, populateCacheLayers } from "@/lib/cache";
+import {
+  clearAllCaches,
+  loadIndex,
+  populateCacheLayers,
+  setCurrentUser,
+} from "@/lib/cache";
 
 interface IndexContextValue {
   index: GitStoreIndex | null;
@@ -23,9 +30,11 @@ interface IndexContextValue {
 const IndexContext = createContext<IndexContextValue | null>(null);
 
 export function IndexProvider({ children }: { children: ReactNode }) {
+  const { data: session, status } = useSession();
   const [index, setIndexState] = useState<GitStoreIndex | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const prevLoginRef = useRef<string | null>(null);
 
   const setIndex = useCallback(async (next: GitStoreIndex) => {
     setIndexState(next);
@@ -77,8 +86,33 @@ export function IndexProvider({ children }: { children: ReactNode }) {
   }, [setIndex]);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    if (status === "loading") return;
+
+    const login = (session as unknown as { login?: string } | null)?.login ?? null;
+    const prevLogin = prevLoginRef.current;
+
+    if (prevLogin === login) {
+      return;
+    }
+
+    void (async () => {
+      setCurrentUser(login ?? "anonymous");
+
+      if (prevLogin && prevLogin !== login) {
+        console.warn(`[cache] namespace switched from ${prevLogin} to ${login}; clearing caches`);
+      }
+
+      await clearAllCaches();
+      setIndexState(null);
+      prevLoginRef.current = login;
+
+      if (login) {
+        await refresh(true);
+      } else {
+        setLoading(false);
+      }
+    })();
+  }, [refresh, session, status]);
 
   const value = useMemo<IndexContextValue>(
     () => ({ index, loading, error, refresh, setIndex }),
