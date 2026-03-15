@@ -11,6 +11,7 @@
 
 import type { UploadChunk, UploadProgress } from "@/types";
 import { l1GetIndex } from "./cache";
+import { classifyFile, ensureNodeExists, type NodeId } from "./nodes";
 
 export const CHUNK_SIZE = 4 * 1024 * 1024; // 4 MB
 
@@ -77,8 +78,10 @@ function sliceFile(file: File): RawChunk[] {
 async function compressBlob(blob: Blob): Promise<Blob> {
   try {
     const stream = blob.stream() as unknown as ReadableStream<Uint8Array>;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const compressed = stream.pipeThrough(new (globalThis as any).CompressionStream("gzip"));
+    type CompressionCtor = new (format: "gzip") => TransformStream<Uint8Array, Uint8Array>;
+    const Compression = (globalThis as unknown as { CompressionStream?: CompressionCtor }).CompressionStream;
+    if (!Compression) throw new Error("CompressionStream unavailable");
+    const compressed = stream.pipeThrough(new Compression("gzip"));
     const response = new Response(compressed);
     return await response.blob();
   } catch {
@@ -97,6 +100,20 @@ async function blobToBase64(blob: Blob): Promise<string> {
     binary += String.fromCharCode(bytes[i]);
   }
   return btoa(binary);
+}
+
+function base64ToBytes(value: string): Uint8Array {
+  const binary = atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+function base64ToArrayBuffer(value: string): ArrayBuffer {
+  const bytes = base64ToBytes(value);
+  const out = new Uint8Array(bytes.length);
+  out.set(bytes);
+  return out.buffer;
 }
 
 // ─── AES-256-GCM encryption ───────────────────────────────────────────────
@@ -151,6 +168,73 @@ async function encryptBlob(
     encrypted: new Blob([ciphertext]),
     iv: btoa(ivBinary),
   };
+}
+
+async function importKeyFromBase64(base64Key: string): Promise<CryptoKey> {
+  const raw = base64ToArrayBuffer(base64Key);
+  return crypto.subtle.importKey("raw", raw, { name: "AES-GCM" }, false, ["decrypt"]);
+}
+
+export async function decryptChunk(
+  encryptedBuffer: ArrayBuffer,
+  base64Iv: string,
+  base64Key: string
+): Promise<ArrayBuffer> {
+  const key = await importKeyFromBase64(base64Key);
+  const iv = new Uint8Array(base64ToArrayBuffer(base64Iv));
+  return crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, encryptedBuffer);
+}
+
+export async function generateThumbnail(blob: Blob): Promise<string | null> {
+  if (blob.type.startsWith("image/")) {
+    const bitmap = await createImageBitmap(blob);
+    const canvas = document.createElement("canvas");
+    canvas.width = 200;
+    canvas.height = 150;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    const scale = Math.min(200 / bitmap.width, 150 / bitmap.height);
+    const w = bitmap.width * scale;
+    const h = bitmap.height * scale;
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, 200, 150);
+    ctx.drawImage(bitmap, (200 - w) / 2, (150 - h) / 2, w, h);
+    return canvas.toDataURL("image/jpeg", 0.6);
+  }
+
+  if (blob.type.startsWith("video/")) {
+    return new Promise((resolve) => {
+      const video = document.createElement("video");
+      video.preload = "metadata";
+      video.muted = true;
+      video.src = URL.createObjectURL(blob);
+      video.onloadeddata = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = 200;
+        canvas.height = 150;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          URL.revokeObjectURL(video.src);
+          resolve(null);
+          return;
+        }
+        ctx.drawImage(video, 0, 0, 200, 150);
+        URL.revokeObjectURL(video.src);
+        resolve(canvas.toDataURL("image/jpeg", 0.6));
+      };
+      video.onerror = () => {
+        URL.revokeObjectURL(video.src);
+        resolve(null);
+      };
+      try {
+        video.currentTime = 1;
+      } catch {
+        // Ignore seek errors for short videos.
+      }
+    });
+  }
+
+  return null;
 }
 
 // ─── Prepare chunks ───────────────────────────────────────────────────────
@@ -240,8 +324,11 @@ export async function uploadChunksBatched(
 
 export interface UploadPipelineOptions {
   file: File;
-  nodeRepo: string;
-  nodeName: string;
+  nodeRepo?: string;
+  nodeName?: string;
+  userOverride?: string;
+  sessionCsrfToken?: string;
+  folder?: string;
   tags?: string[];
   onProgress?: (progress: UploadProgress) => void;
 }
@@ -249,6 +336,10 @@ export interface UploadPipelineOptions {
 export interface UploadPipelineResult {
   hash: string;
   path: string;
+  nodeName: string;
+  nodeRepo: string;
+  thumbnail: string | null;
+  folder: string;
   chunks: string[];
   skipped: boolean; // true = dedup, no upload performed
   /** Base64-encoded 12-byte AES-GCM IVs (one per chunk), colon-separated */
@@ -260,7 +351,16 @@ export interface UploadPipelineResult {
 export async function runUploadPipeline(
   options: UploadPipelineOptions
 ): Promise<UploadPipelineResult> {
-  const { file, nodeRepo, nodeName, tags = [], onProgress } = options;
+  const {
+    file,
+    nodeRepo,
+    nodeName,
+    userOverride,
+    sessionCsrfToken,
+    folder,
+    tags = [],
+    onProgress,
+  } = options;
 
   const reportProgress = (
     status: UploadProgress["status"],
@@ -284,8 +384,37 @@ export async function runUploadPipeline(
   reportProgress("dedup");
   if (isDuplicate(hash)) {
     reportProgress("done", 1, 1);
-    return { hash, path: "", chunks: [], skipped: true };
+    return {
+      hash,
+      path: "",
+      nodeName: nodeName ?? "other",
+      nodeRepo: nodeRepo ?? "gitstore-other",
+      thumbnail: null,
+      folder: folder ?? "/",
+      chunks: [],
+      skipped: true,
+    };
   }
+
+  const index = l1GetIndex();
+  const autoNode = classifyFile(file.type || "application/octet-stream");
+  const targetNode = (userOverride ?? nodeName ?? autoNode) as NodeId;
+
+  if (index && !ensureNodeExists(index, targetNode)) {
+    await fetch("/api/nodes", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(sessionCsrfToken ? { "x-csrf-token": sessionCsrfToken } : {}),
+      },
+      body: JSON.stringify({ name: targetNode }),
+    });
+  }
+
+  const resolvedRepo = nodeRepo ?? index?.nodes[targetNode]?.repo ?? `gitstore-${targetNode}`;
+  const resolvedNode = nodeName ?? targetNode;
+
+  const thumbnail = await generateThumbnail(file);
 
   // Step 3 & 4 & 5: Slice, compress, [encrypt], base64
   const date = new Date();
@@ -300,7 +429,7 @@ export async function runUploadPipeline(
   reportProgress("uploading", 0, chunks.length);
 
   // Step 6: Upload in batches of 4
-  await uploadChunksBatched(chunks, nodeRepo, (n) => {
+  await uploadChunksBatched(chunks, resolvedRepo, (n) => {
     reportProgress("uploading", n, chunks.length);
   });
 
@@ -314,6 +443,10 @@ export async function runUploadPipeline(
   return {
     hash,
     path: basePath,
+    nodeName: resolvedNode,
+    nodeRepo: resolvedRepo,
+    thumbnail,
+    folder: folder ?? "/",
     chunks: chunkPaths,
     skipped: false,
     iv: ivs.length > 0 ? ivs.join(":") : undefined,

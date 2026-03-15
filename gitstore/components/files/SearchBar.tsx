@@ -1,38 +1,75 @@
 "use client";
 
-interface SearchBarProps {
-  value: string;
-  onChange: (v: string) => void;
-}
+import { useMemo, useState } from "react";
+import { SearchIcon } from "lucide-react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useIndex } from "@/components/providers/IndexContext";
+import { searchFiles } from "@/lib/index";
+import { formatBytes } from "@/lib/format";
 
-export function SearchBar({ value, onChange }: SearchBarProps) {
+export function SearchBar() {
+  const { index } = useIndex();
+  const router = useRouter();
+  const pathname = usePathname();
+  const params = useSearchParams();
+  const [open, setOpen] = useState(false);
+
+  const q = params.get("q") ?? "";
+
+  const results = useMemo(() => {
+    if (!index || !q.trim()) return [];
+    return searchFiles(index, q).filter((f) => !f.trashed).slice(0, 8);
+  }, [index, q]);
+
   return (
-    <div className="relative flex-1">
-      <svg
-        className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-      >
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-          d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-      </svg>
-      <input
-        type="text"
-        placeholder="Search files by name or tag…"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full pl-9 pr-4 py-2 bg-gray-900 border border-gray-700 hover:border-gray-600 focus:border-emerald-500/50 rounded-lg text-sm text-gray-100 placeholder-gray-500 outline-none transition-colors"
-      />
-      {value && (
-        <button
-          onClick={() => onChange("")}
-          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 transition-colors"
-        >
-          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
+    <div className="relative w-full max-w-2xl">
+      <label htmlFor="global-search" className="sr-only">
+        Search files
+      </label>
+      <div className="flex items-center gap-2 rounded-full border border-gray-300 bg-gray-50 px-4 py-2 dark:border-gray-700 dark:bg-gray-800">
+        <SearchIcon className="h-4 w-4 text-gray-400" />
+        <input
+          id="global-search"
+          value={q}
+          onChange={(e) => {
+            const next = new URLSearchParams(params.toString());
+            if (e.target.value) next.set("q", e.target.value);
+            else next.delete("q");
+            router.replace(`${pathname}?${next.toString()}`);
+            setOpen(true);
+          }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setTimeout(() => setOpen(false), 120)}
+          className="w-full bg-transparent text-sm outline-none placeholder:text-gray-400"
+          placeholder="Search in My Files"
+        />
+      </div>
+
+      {open && q.trim() && (
+        <div className="absolute z-40 mt-2 w-full rounded-xl border border-gray-200 bg-white p-2 shadow-lg dark:border-gray-800 dark:bg-gray-900">
+          {results.length === 0 ? (
+            <p className="px-3 py-2 text-sm text-gray-500">No files match "{q}"</p>
+          ) : (
+            results.map((file) => (
+              <button
+                key={file.hash}
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  const next = new URLSearchParams(params.toString());
+                  next.set("q", q);
+                  next.set("node", file.node);
+                  if (file.folder && file.folder !== "/") next.set("folder", file.folder);
+                  router.push(`${pathname}?${next.toString()}`);
+                }}
+                className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800"
+              >
+                <span className="truncate text-gray-900 dark:text-gray-100">{file.name}</span>
+                <span className="text-xs text-gray-500">{formatBytes(file.size)}</span>
+              </button>
+            ))
+          )}
+        </div>
       )}
     </div>
   );

@@ -1,19 +1,14 @@
 "use client";
 
-interface NodeBadgeProps {
-  label: string;
-  active: boolean;
-  onClick: () => void;
-}
-
-export function NodeBadge({ label, active, onClick }: NodeBadgeProps) {
+export function NodeBadge({ label, active, onClick }: { label: string; active?: boolean; onClick?: () => void }) {
   return (
     <button
+      type="button"
       onClick={onClick}
-      className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+      className={`rounded-full px-3 py-1 text-xs ${
         active
-          ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
-          : "bg-gray-900 border-gray-700 text-gray-400 hover:text-gray-200 hover:border-gray-500"
+          ? "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
+          : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300"
       }`}
     >
       {label}

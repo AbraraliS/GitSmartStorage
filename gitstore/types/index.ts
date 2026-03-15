@@ -34,6 +34,16 @@ export interface FileRecord {
   iv?: string;
   /** Base64-encoded raw AES-256-GCM key exported from SubtleCrypto (stored in private index.json) */
   encryptionKey?: string;
+  /** Virtual folder path, e.g. "2024/Holidays". Defaults to "/". */
+  folder?: string;
+  /** Base64 JPEG thumbnail (200x150). Null/undefined for non-visual files. */
+  thumbnail?: string;
+  /** User-starred file marker. */
+  starred?: boolean;
+  /** Soft-delete marker for trash view. */
+  trashed?: boolean;
+  /** ISO timestamp of when the file was moved to trash. */
+  trashedAt?: string;
 }
 
 export interface GitStoreIndex {
@@ -43,6 +53,8 @@ export interface GitStoreIndex {
   files: Record<string, FileRecord>;
   /** keyword → list of hashes */
   search_index: Record<string, string[]>;
+  /** Virtual folder map */
+  folders?: Record<string, { name: string; node: string; parent: string; created: string }>;
   /** ISO last-modified timestamp */
   updated_at?: string;
   /** Schema version for future migrations */

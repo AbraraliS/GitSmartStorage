@@ -1,86 +1,112 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { UploadCloudIcon } from "lucide-react";
+import { classifyFile } from "@/lib/nodes";
+import { useUpload } from "@/components/providers/UploadContext";
 
-interface DropZoneProps {
-  onDrop: (files: File[]) => void;
+export function DropZone({
+  onDrop,
+  disabled,
+  showEmptyPrompt,
+  currentFolder,
+}: {
+  onDrop?: (files: File[]) => void;
   disabled?: boolean;
-}
+  showEmptyPrompt?: boolean;
+  currentFolder?: string;
+}) {
+  const { addUpload } = useUpload();
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const dragDepth = useRef(0);
 
-export function DropZone({ onDrop, disabled }: DropZoneProps) {
-  const [isDragging, setIsDragging] = useState(false);
+  const handleFiles = useCallback((files: File[]) => {
+    if (disabled || files.length === 0) return;
+    onDrop?.(files);
+    for (const file of files) {
+      const node = classifyFile(file.type || "application/octet-stream");
+      addUpload(file, { userOverride: node, folder: currentFolder ?? "/" });
+    }
+  }, [addUpload, currentFolder, disabled, onDrop]);
 
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
-  }, []);
+  useEffect(() => {
+    const openPicker = () => inputRef.current?.click();
+    const handleDragEnter = (event: DragEvent) => {
+      event.preventDefault();
+      dragDepth.current += 1;
+      if (!disabled) setDragOver(true);
+    };
+    const handleDragLeave = (event: DragEvent) => {
+      event.preventDefault();
+      dragDepth.current = Math.max(0, dragDepth.current - 1);
+      if (dragDepth.current === 0) setDragOver(false);
+    };
+    const handleDragOver = (event: DragEvent) => {
+      event.preventDefault();
+    };
+    const handleDrop = (event: DragEvent) => {
+      event.preventDefault();
+      dragDepth.current = 0;
+      setDragOver(false);
+      const files = Array.from(event.dataTransfer?.files ?? []);
+      handleFiles(files);
+    };
 
-  const handleDragLeave = useCallback(() => setIsDragging(false), []);
+    window.addEventListener("gitstore:new-upload", openPicker);
+    window.addEventListener("dragenter", handleDragEnter);
+    window.addEventListener("dragleave", handleDragLeave);
+    window.addEventListener("dragover", handleDragOver);
+    window.addEventListener("drop", handleDrop);
 
-  const handleDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      setIsDragging(false);
-      if (disabled) return;
-      const files = Array.from(e.dataTransfer.files);
-      if (files.length) onDrop(files);
-    },
-    [disabled, onDrop]
-  );
+    return () => {
+      window.removeEventListener("gitstore:new-upload", openPicker);
+      window.removeEventListener("dragenter", handleDragEnter);
+      window.removeEventListener("dragleave", handleDragLeave);
+      window.removeEventListener("dragover", handleDragOver);
+      window.removeEventListener("drop", handleDrop);
+    };
+  }, [disabled, handleFiles]);
 
-  const handleChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const files = Array.from(e.target.files ?? []);
-      if (files.length) onDrop(files);
-      e.target.value = "";
-    },
-    [onDrop]
+  const overlay = useMemo(
+    () =>
+      dragOver ? (
+        <div className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center bg-blue-600/10">
+          <div className="rounded-2xl border-2 border-dashed border-blue-500 bg-white/90 px-10 py-14 text-center dark:bg-gray-900/90">
+            <UploadCloudIcon className="mx-auto h-10 w-10 text-blue-600" />
+            <p className="mt-3 text-lg font-semibold text-gray-900 dark:text-gray-100">Drop files anywhere</p>
+          </div>
+        </div>
+      ) : null,
+    [dragOver]
   );
 
   return (
-    <label
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
-      className={`block border-2 border-dashed rounded-xl p-12 text-center transition-all cursor-pointer ${
-        disabled
-          ? "border-gray-800 opacity-50 cursor-not-allowed"
-          : isDragging
-          ? "border-emerald-500 bg-emerald-500/5"
-          : "border-gray-700 hover:border-emerald-500/50 hover:bg-gray-900/40"
-      }`}
-    >
+    <>
       <input
+        ref={inputRef}
         type="file"
         multiple
         className="hidden"
-        onChange={handleChange}
-        disabled={disabled}
+        onChange={(event) => {
+          const files = Array.from(event.target.files ?? []);
+          handleFiles(files);
+          event.currentTarget.value = "";
+        }}
       />
-      <svg
-        className={`w-12 h-12 mx-auto mb-4 transition-colors ${
-          isDragging ? "text-emerald-400" : "text-gray-600"
-        }`}
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={1}
-          d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
-        />
-      </svg>
-      <p className="text-gray-300 font-medium">
-        {isDragging ? "Drop files here" : "Drag & drop files or click to browse"}
-      </p>
-      <p className="text-xs text-gray-600 mt-2">
-        Any format · Auto-chunked at 4 MB · SHA-256 deduplication
-      </p>
-      <p className="text-xs text-gray-700 mt-1">
-        Under 100 MB → Repo · 100 MB–2 GB → Git LFS · Above 2 GB → Releases
-      </p>
-    </label>
+
+      {showEmptyPrompt && (
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          className="relative z-10 flex w-full flex-col items-center rounded-xl border-2 border-dashed border-gray-300 py-12 text-gray-500 hover:border-blue-400 hover:text-blue-600 dark:border-gray-700 dark:text-gray-400"
+        >
+          <UploadCloudIcon className="h-10 w-10" />
+          <p className="mt-3">Drop files here or click to upload</p>
+        </button>
+      )}
+
+      {overlay}
+    </>
   );
 }

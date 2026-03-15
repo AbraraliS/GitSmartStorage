@@ -1,228 +1,201 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
-import { useVirtualizer } from "@tanstack/react-virtual";
-import type { FileRecord, GitStoreIndex, FilterOptions } from "@/types";
-import { loadIndex, populateCacheLayers } from "@/lib/cache";
-import { searchFiles } from "@/lib/index";
-import { FileCard } from "@/components/files/FileCard";
-import { SearchBar } from "@/components/files/SearchBar";
-import { FilterPanel } from "@/components/files/FilterPanel";
-import { NodeBadge } from "@/components/files/NodeBadge";
-import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { FolderOpenIcon, SearchIcon, Trash2Icon } from "lucide-react";
+import { useIndex } from "@/components/providers/IndexContext";
+import {
+  getFilesInFolder,
+  getStarredFiles,
+  getSubFolders,
+  getTrashedFiles,
+  searchFiles,
+} from "@/lib/index";
+import { FileGrid } from "@/components/files/FileGrid";
+import { FileList } from "@/components/files/FileList";
+import { createFolderAction, emptyTrashAction } from "@/app/dashboard/actions";
+import { DropZone } from "@/components/upload/DropZone";
+
+interface FolderEntry {
+  name: string;
+  path: string;
+}
 
 export default function DashboardPage() {
-  const [index, setIndex] = useState<GitStoreIndex | null>(null);
-  const [query, setQuery] = useState("");
-  const [filters, setFilters] = useState<FilterOptions>({});
-  const [results, setResults] = useState<FileRecord[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { index, loading, error, setIndex } = useIndex();
+  const params = useSearchParams();
+  const router = useRouter();
 
-  const parentRef = useRef<HTMLDivElement>(null);
+  const [creatingFolder, setCreatingFolder] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
 
-  // Load index: L1 → L2 → L5 (GitHub API)
-  const fetchIndex = useCallback(async (force = false) => {
-    try {
-      if (!force) {
-        const cached = await loadIndex();
-        if (cached) {
-          setIndex(cached);
-          setLoading(false);
-          return;
-        }
-      }
+  const view = params.get("view") ?? "";
+  const node = params.get("node") ?? "";
+  const folder = params.get("folder") ?? "/";
+  const q = params.get("q") ?? "";
+  const mode = params.get("mode") ?? "grid";
 
-      setLoading(true);
-      const res = await fetch("/api/sync");
-      if (!res.ok) throw new Error("Failed to fetch index");
-      const data = await res.json() as { index: GitStoreIndex | null };
-
-      if (data.index) {
-        await populateCacheLayers(data.index);
-        setIndex(data.index);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-    } finally {
-      setLoading(false);
-    }
+  useEffect(() => {
+    const onNewFolder = () => setCreatingFolder(true);
+    window.addEventListener("gitstore:new-folder", onNewFolder);
+    return () => window.removeEventListener("gitstore:new-folder", onNewFolder);
   }, []);
 
-  useEffect(() => {
-    void fetchIndex();
-  }, [fetchIndex]);
+  const computed = useMemo(() => {
+    if (!index) return { files: [], folders: [] as FolderEntry[] };
 
-  // Re-run search whenever query, filters, or index changes
-  useEffect(() => {
-    if (!index) return;
-    const found = searchFiles(index, query, filters);
-    setResults(found);
-  }, [index, query, filters]);
-
-  // Virtual scroll
-  const rowVirtualizer = useVirtualizer({
-    count: results.length,
-    getScrollElement: () => parentRef.current,
-    estimateSize: () => 72,
-    overscan: 10,
-  });
-
-  const handleDelete = useCallback(async (hash: string) => {
-    if (!confirm("Delete this file? This cannot be undone.")) return;
-    try {
-      const res = await fetch(`/api/files?hash=${hash}`, { method: "DELETE" });
-      if (!res.ok) throw new Error("Delete failed");
-      await fetchIndex(true);
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "Delete failed");
+    if (q.trim()) {
+      return {
+        files: searchFiles(index, q).filter((f) => !f.trashed),
+        folders: [] as FolderEntry[],
+      };
     }
-  }, [fetchIndex]);
 
-  // ── Bootstrap check: if no index, trigger bootstrap
-  useEffect(() => {
-    if (!loading && !index && !error) {
-      fetch("/api/bootstrap", { method: "POST" })
-        .then((r) => r.json())
-        .then((data: { index?: GitStoreIndex }) => {
-          if (data.index) {
-            void populateCacheLayers(data.index);
-            setIndex(data.index);
-          }
-        })
-        .catch(console.error);
+    if (view === "recent") {
+      return {
+        files: Object.values(index.files)
+          .filter((f) => !f.trashed)
+          .sort((a, b) => +new Date(b.created) - +new Date(a.created))
+          .slice(0, 20),
+        folders: [] as FolderEntry[],
+      };
     }
-  }, [loading, index, error]);
+
+    if (view === "starred") {
+      return { files: getStarredFiles(index), folders: [] as FolderEntry[] };
+    }
+
+    if (view === "trash") {
+      return { files: getTrashedFiles(index), folders: [] as FolderEntry[] };
+    }
+
+    if (node) {
+      const subFolders = getSubFolders(index, node, folder).map((name) => ({
+        name,
+        path: folder === "/" ? name : `${folder}/${name}`,
+      }));
+
+      return {
+        folders: subFolders,
+        files: getFilesInFolder(index, node, folder),
+      };
+    }
+
+    return { files: [], folders: [] as FolderEntry[] };
+  }, [index, node, folder, q, view]);
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="flex items-center gap-3 text-gray-400">
-          <svg className="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-          </svg>
-          Loading your file index…
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="bg-red-900/20 border border-red-500/30 rounded-xl p-6 text-red-400">
-        <p className="font-semibold">Error loading index</p>
-        <p className="text-sm mt-1">{error}</p>
-        <button onClick={() => fetchIndex(true)} className="mt-3 text-sm underline hover:text-red-300">
-          Retry
-        </button>
-      </div>
-    );
-  }
-
-  const totalFiles = Object.keys(index?.files ?? {}).length;
-  const nodes = Object.values(index?.nodes ?? {});
-
-  return (
-    <div className="flex flex-col gap-6 h-full">
-      {/* Header row */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold">File Browser</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
-            {totalFiles} file{totalFiles !== 1 ? "s" : ""} across {nodes.length} node{nodes.length !== 1 ? "s" : ""}
-          </p>
-        </div>
-        <Link
-          href="/upload"
-          className="flex items-center gap-2 px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-gray-950 font-semibold rounded-lg text-sm transition-colors"
-        >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-          </svg>
-          Upload
-        </Link>
-      </div>
-
-      {/* Node badges */}
-      {nodes.length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          <NodeBadge
-            label="All nodes"
-            active={!filters.node}
-            onClick={() => setFilters((f) => ({ ...f, node: undefined }))}
-          />
-          {nodes.map((n) => (
-            <NodeBadge
-              key={n.id}
-              label={`${n.id} (${n.size_mb.toFixed(1)} MB)`}
-              active={filters.node === n.id}
-              onClick={() =>
-                setFilters((f) => ({
-                  ...f,
-                  node: f.node === n.id ? undefined : n.id,
-                }))
-              }
-            />
+      <section className="space-y-4">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+          {Array.from({ length: 12 }).map((_, idx) => (
+            <div key={idx} className="h-40 animate-pulse rounded-xl bg-gray-200 dark:bg-gray-700" />
           ))}
         </div>
-      )}
+      </section>
+    );
+  }
 
-      {/* Search + filter row */}
-      <div className="flex gap-3">
-        <SearchBar value={query} onChange={setQuery} />
-        <FilterPanel filters={filters} onChange={setFilters} />
-      </div>
+  if (error || !index) {
+    return <p className="rounded-lg bg-red-50 p-4 text-sm text-red-600 dark:bg-red-950/20">{error ?? "Failed to load index"}</p>;
+  }
 
-      {/* Results count */}
-      {query || filters.node || filters.type ? (
-        <p className="text-sm text-gray-500">
-          {results.length} result{results.length !== 1 ? "s" : ""}
-          {query ? ` for "${query}"` : ""}
-        </p>
-      ) : null}
-
-      {/* File list — virtualised */}
-      {results.length === 0 ? (
-        <div className="flex flex-col items-center justify-center h-64 text-gray-600">
-          <svg className="w-12 h-12 mb-4 opacity-30" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1}
-              d="M9 13h6m-3-3v6m-9 1V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
-          </svg>
-          <p className="text-sm">
-            {totalFiles === 0 ? "No files yet. Upload your first file!" : "No files match your search."}
-          </p>
-        </div>
-      ) : (
-        <div
-          ref={parentRef}
-          className="flex-1 overflow-y-auto rounded-xl border border-gray-800"
-          style={{ contain: "strict" }}
-        >
-          <div
-            style={{ height: `${rowVirtualizer.getTotalSize()}px`, position: "relative" }}
+  if (!node && !view && !q) {
+    const allNodes = Object.values(index.nodes);
+    return (
+      <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+        {allNodes.map((n) => (
+          <button
+            key={n.id}
+            type="button"
+            onClick={() => router.push(`/dashboard?node=${n.id}`)}
+            className="rounded-xl border border-gray-200 p-4 text-left hover:ring-2 hover:ring-blue-500 dark:border-gray-800"
           >
-            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-              const file = results[virtualRow.index];
-              return (
-                <div
-                  key={file.hash}
-                  style={{
-                    position: "absolute",
-                    top: 0,
-                    left: 0,
-                    width: "100%",
-                    transform: `translateY(${virtualRow.start}px)`,
-                  }}
-                >
-                  <FileCard file={file} onDelete={handleDelete} />
-                </div>
-              );
-            })}
-          </div>
+            <FolderOpenIcon className="mb-4 h-10 w-10 text-amber-500" />
+            <p className="truncate text-sm font-medium">{n.id}</p>
+            <p className="text-xs text-gray-500">{n.repo}</p>
+          </button>
+        ))}
+      </section>
+    );
+  }
+
+  const isEmpty = computed.files.length === 0 && computed.folders.length === 0;
+
+  return (
+    <section className="space-y-4">
+      {view === "trash" && (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            className="rounded-md bg-red-600 px-3 py-2 text-sm text-white hover:bg-red-500"
+            onClick={async () => {
+              const next = await emptyTrashAction();
+              await setIndex(next);
+            }}
+          >
+            Empty trash
+          </button>
         </div>
       )}
-    </div>
+
+      {isEmpty ? (
+        <div className="flex min-h-[45vh] flex-col items-center justify-center text-center">
+          {view === "trash" ? (
+            <>
+              <Trash2Icon size={64} className="text-gray-300" />
+              <p className="mt-3 text-gray-500">Trash is empty</p>
+            </>
+          ) : q ? (
+            <>
+              <SearchIcon size={64} className="text-gray-300" />
+              <p className="mt-3 text-gray-500">No files match "{q}"</p>
+            </>
+          ) : (
+            <>
+              <FolderOpenIcon size={64} className="text-gray-300" />
+              <p className="mt-3 text-gray-500">This folder is empty</p>
+              <div className="mt-4 w-full max-w-md">
+                <DropZone showEmptyPrompt currentFolder={folder} />
+              </div>
+            </>
+          )}
+        </div>
+      ) : mode === "list" ? (
+        <FileList files={computed.files} />
+      ) : (
+        <FileGrid files={computed.files} folders={computed.folders} node={node} currentFolder={folder} />
+      )}
+
+      {creatingFolder && (
+        <div className="inline-flex items-center gap-2 rounded-xl border border-blue-300 bg-blue-50 p-2 dark:border-blue-700 dark:bg-blue-950/40">
+          <input
+            value={newFolderName}
+            onChange={(event) => setNewFolderName(event.target.value)}
+            className="rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-900"
+            placeholder="Folder name"
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                setCreatingFolder(false);
+                setNewFolderName("");
+              }
+            }}
+          />
+          <button
+            type="button"
+            className="rounded bg-blue-600 px-2 py-1 text-sm text-white"
+            onClick={async () => {
+              if (!node || !newFolderName.trim()) return;
+              const next = await createFolderAction(node, folder, newFolderName.trim());
+              await setIndex(next);
+              setCreatingFolder(false);
+              setNewFolderName("");
+            }}
+          >
+            Create
+          </button>
+        </div>
+      )}
+    </section>
   );
 }

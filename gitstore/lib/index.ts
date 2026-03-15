@@ -203,3 +203,47 @@ export function serializeIndex(index: GitStoreIndex): string {
 export function deserializeIndex(raw: string): GitStoreIndex {
   return JSON.parse(raw) as GitStoreIndex;
 }
+
+export function getFilesInFolder(
+  index: GitStoreIndex,
+  node: string,
+  folder: string
+): FileRecord[] {
+  return Object.values(index.files).filter(
+    (f) => !f.trashed && f.node === node && (f.folder ?? "/") === folder
+  );
+}
+
+export function getSubFolders(
+  index: GitStoreIndex,
+  node: string,
+  folder: string
+): string[] {
+  const seen = new Set<string>();
+  const prefix = folder === "/" ? "" : `${folder}/`;
+
+  for (const f of Object.values(index.files)) {
+    if (f.node !== node || f.trashed) continue;
+    const rel = (f.folder ?? "/").slice(prefix.length);
+    const next = rel.split("/")[0];
+    if (next && (f.folder ?? "/") !== folder) seen.add(next);
+  }
+
+  if (index.folders) {
+    for (const entry of Object.values(index.folders)) {
+      if (entry.node !== node) continue;
+      if (entry.parent !== folder) continue;
+      seen.add(entry.name);
+    }
+  }
+
+  return [...seen];
+}
+
+export function getTrashedFiles(index: GitStoreIndex): FileRecord[] {
+  return Object.values(index.files).filter((f) => f.trashed);
+}
+
+export function getStarredFiles(index: GitStoreIndex): FileRecord[] {
+  return Object.values(index.files).filter((f) => f.starred && !f.trashed);
+}
