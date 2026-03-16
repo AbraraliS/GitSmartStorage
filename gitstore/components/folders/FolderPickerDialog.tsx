@@ -135,7 +135,7 @@ export function FolderPickerDialog({
         </div>
 
         {/* Folder tree — driven by live index, re-renders after createFolderAction */}
-        <div className="max-h-64 overflow-y-auto px-2 py-2">
+        <div className="modal-scroll max-h-64 overflow-y-auto px-2 py-2">
           <FolderTree
             index={index}
             selected={creatingNew ? "" : selected}

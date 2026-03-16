@@ -122,7 +122,6 @@ export function Sidebar() {
 
   // ── Modal state ─────────────────────────────────────────────────────────
   const [renameTarget, setRenameTarget] = useState<{ path: string; name: string } | null>(null);
-  const [createFolderParent, setCreateFolderParent] = useState<string | null>(null);
   const [moveTarget, setMoveTarget] = useState<{ path: string; name: string } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ path: string; name: string } | null>(null);
 
@@ -357,8 +356,7 @@ export function Sidebar() {
               type="button"
               className="rounded-lg p-1 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
               onClick={() => {
-                const parent = activePath || "/";
-                setCreateFolderParent(parent);
+                window.dispatchEvent(new Event("gitstore:new-folder"));
               }}
               aria-label="Create folder"
             >
@@ -504,25 +502,6 @@ export function Sidebar() {
             Delete folder
           </button>
         </div>
-      )}
-
-      {/* ── Create folder dialog ─────────────────────────────────────────── */}
-      {createFolderParent !== null && (
-        <RenameDialog
-          open
-          currentName=""
-          type="folder"
-          onConfirm={async (folderName) => {
-            const parent = createFolderParent;
-            const defaultNode = parent && parent !== "/"
-              ? index?.folders?.[parent]?.node ?? node ?? "documents"
-              : node || "documents";
-            const next = await createFolderAction(folderName, parent, defaultNode);
-            await setIndex(next);
-            setCreateFolderParent(null);
-          }}
-          onCancel={() => setCreateFolderParent(null)}
-        />
       )}
 
       {/* ── Rename folder dialog ─────────────────────────────────────────── */}

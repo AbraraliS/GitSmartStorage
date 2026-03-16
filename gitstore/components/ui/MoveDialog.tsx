@@ -145,7 +145,7 @@ export function MoveDialog({
         </div>
 
         {/* Folder tree */}
-        <div className="overflow-y-auto flex-1 px-2 py-2">
+        <div className="modal-scroll overflow-y-auto flex-1 px-2 py-2">
           <FolderTree
             index={index}
             selected={creatingNew ? "" : selected}

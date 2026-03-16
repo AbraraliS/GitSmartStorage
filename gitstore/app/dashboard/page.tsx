@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { FolderOpenIcon, FolderPlusIcon, SearchIcon, Trash2Icon, UploadCloudIcon } from "lucide-react";
 import { useIndex } from "@/components/providers/IndexContext";
 import {
@@ -13,8 +13,9 @@ import {
 } from "@/lib/index";
 import { FileGrid } from "@/components/files/FileGrid";
 import { FileList } from "@/components/files/FileList";
-import { createFolderAction, emptyTrashAction } from "@/app/dashboard/actions";
+import { emptyTrashAction } from "@/app/dashboard/actions";
 import { DropZone } from "@/components/upload/DropZone";
+import { NewFolderDialog } from "@/components/ui/NewFolderDialog";
 
 interface FolderEntry {
   name: string;
@@ -24,9 +25,9 @@ interface FolderEntry {
 export default function DashboardPage() {
   const { index, loading, error, setIndex } = useIndex();
   const params = useSearchParams();
+  const router = useRouter();
 
-  const [creatingFolder, setCreatingFolder] = useState(false);
-  const [newFolderName, setNewFolderName] = useState("");
+  const [newFolderDialogOpen, setNewFolderDialogOpen] = useState(false);
 
   const view = params.get("view") ?? "";
   const node = params.get("node") ?? "";
@@ -37,7 +38,7 @@ export default function DashboardPage() {
   const mode = params.get("mode") ?? "grid";
 
   useEffect(() => {
-    const onNewFolder = () => setCreatingFolder(true);
+    const onNewFolder = () => setNewFolderDialogOpen(true);
     window.addEventListener("gitstore:new-folder", onNewFolder);
     return () => window.removeEventListener("gitstore:new-folder", onNewFolder);
   }, []);
@@ -154,7 +155,7 @@ export default function DashboardPage() {
             </button>
             <button
               type="button"
-              onClick={() => setCreatingFolder(true)}
+              onClick={() => setNewFolderDialogOpen(true)}
               className="flex items-center gap-2 rounded-lg border border-gray-700 px-4 py-2 text-sm text-gray-300 hover:bg-gray-800"
             >
               <FolderPlusIcon className="h-4 w-4" />
@@ -227,39 +228,15 @@ export default function DashboardPage() {
         <FileGrid files={computed.files} folders={computed.folders} currentFolder={path || undefined} isFolderView={view === "folder" && Boolean(path)} />
       )}
 
-      {creatingFolder && (
-        <div className="inline-flex items-center gap-2 rounded-xl border border-blue-300 bg-blue-50 p-2 dark:border-blue-700 dark:bg-blue-950/40">
-          <input
-            value={newFolderName}
-            onChange={(event) => setNewFolderName(event.target.value)}
-            className="rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-900"
-            placeholder="Folder name"
-            onKeyDown={(event) => {
-              if (event.key === "Escape") {
-                setCreatingFolder(false);
-                setNewFolderName("");
-              }
-            }}
-          />
-          <button
-            type="button"
-            className="rounded bg-blue-600 px-2 py-1 text-sm text-white"
-            onClick={async () => {
-              if (!newFolderName.trim()) return;
-              const next = await createFolderAction(
-                newFolderName.trim(),
-                currentFolderPath,
-                activeFolderNode ?? node ?? "documents"
-              );
-              await setIndex(next);
-              setCreatingFolder(false);
-              setNewFolderName("");
-            }}
-          >
-            Create
-          </button>
-        </div>
-      )}
+      <NewFolderDialog
+        open={newFolderDialogOpen}
+        defaultParentPath={view === "folder" ? (params.get("path") ?? "/") : "/"}
+        onConfirm={(createdPath) => {
+          setNewFolderDialogOpen(false);
+          router.push(`/dashboard?view=folder&path=${encodeURIComponent(createdPath)}`);
+        }}
+        onCancel={() => setNewFolderDialogOpen(false)}
+      />
     </section>
   );
 }
