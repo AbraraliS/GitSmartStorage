@@ -387,7 +387,7 @@ export function renameFolder(index: GitStoreIndex, fromPath: string, toPath: str
 
   const targetParent = targetPath.includes("/") ? targetPath.split("/").slice(0, -1).join("/") : "";
   if (targetParent) {
-    createFolder(index, targetParent, sourceFolder.node);
+    createFolder(index, targetParent, sourceFolder.node ?? "documents");
   }
 
   const affectedFolders = Object.values(index.folders ?? {})
@@ -440,6 +440,222 @@ export function getSubFoldersOf(index: GitStoreIndex, parentPath: string): Folde
   return Object.values(index.folders ?? {})
     .filter((folder) => folder.parent === parentPath)
     .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * Delete a folder and all descendants. Files are preserved and only lose
+ * pointers to deleted folders.
+ */
+export function deleteFolderFromIndex(index: GitStoreIndex, folderPath: string): void {
+  ensureIndexCollections(index);
+  if (!index.folders?.[folderPath]) return;
+
+  const toDelete = new Set<string>([folderPath]);
+  const collectDescendants = (path: string) => {
+    Object.values(index.folders ?? {}).forEach((folder) => {
+      if (folder.parent === path) {
+        toDelete.add(folder.path);
+        collectDescendants(folder.path);
+      }
+    });
+  };
+  collectDescendants(folderPath);
+
+  Object.values(index.files).forEach((file) => {
+    if (file.folders?.some((fp) => toDelete.has(fp))) {
+      file.folders = (file.folders ?? []).filter((fp) => !toDelete.has(fp));
+    }
+  });
+
+  toDelete.forEach((path) => {
+    delete index.folders?.[path];
+  });
+}
+
+/**
+ * Rename a folder's leaf segment and remap descendant folder and file pointers.
+ */
+export function renameFolderInIndex(
+  index: GitStoreIndex,
+  oldPath: string,
+  newName: string
+): string {
+  ensureIndexCollections(index);
+  const folder = index.folders?.[oldPath];
+  if (!folder) return oldPath;
+
+  const cleanName = newName.trim().replace(/[/\\]/g, "");
+  if (!cleanName || cleanName === folder.name) return oldPath;
+
+  const parentPrefix = folder.parent === "/" ? "" : `${folder.parent}/`;
+  const newPath = `${parentPrefix}${cleanName}`;
+  if (index.folders?.[newPath]) return oldPath;
+
+  const pathRemap = new Map<string, string>();
+  pathRemap.set(oldPath, newPath);
+
+  const collectDescendants = (oldParentPath: string, newParentPath: string) => {
+    Object.values(index.folders ?? {}).forEach((entry) => {
+      if (entry.parent === oldParentPath) {
+        const childNewPath = `${newParentPath}/${entry.name}`;
+        pathRemap.set(entry.path, childNewPath);
+        collectDescendants(entry.path, childNewPath);
+      }
+    });
+  };
+  collectDescendants(oldPath, newPath);
+
+  const newFolders: Record<string, FolderMeta> = {};
+  Object.values(index.folders ?? {}).forEach((entry) => {
+    if (pathRemap.has(entry.path)) {
+      const remappedPath = pathRemap.get(entry.path)!;
+      const remappedParent = pathRemap.get(entry.parent) ?? entry.parent;
+      newFolders[remappedPath] = {
+        ...entry,
+        id: remappedPath,
+        path: remappedPath,
+        parent: remappedParent,
+        name: remappedPath === newPath ? cleanName : entry.name,
+      };
+    } else {
+      newFolders[entry.path] = entry;
+    }
+  });
+  index.folders = newFolders;
+
+  Object.values(index.files).forEach((file) => {
+    if (file.folders?.some((fp) => pathRemap.has(fp))) {
+      file.folders = (file.folders ?? []).map((fp) => pathRemap.get(fp) ?? fp);
+    }
+  });
+
+  return newPath;
+}
+
+/**
+ * Move a folder to a new parent path and remap descendant folder and file pointers.
+ */
+export function moveFolderInIndex(
+  index: GitStoreIndex,
+  folderPath: string,
+  newParentPath: string
+): string {
+  ensureIndexCollections(index);
+  const folder = index.folders?.[folderPath];
+  if (!folder) return folderPath;
+
+  const normalizedParent = newParentPath === "/" || !newParentPath
+    ? "/"
+    : normalizeFolderValue(newParentPath);
+
+  if (normalizedParent === folderPath || normalizedParent.startsWith(`${folderPath}/`)) {
+    return folderPath;
+  }
+
+  const newBase = normalizedParent === "/"
+    ? folder.name
+    : `${normalizedParent}/${folder.name}`;
+
+  if (newBase === folderPath || index.folders?.[newBase]) {
+    return folderPath;
+  }
+
+  const pathRemap = new Map<string, string>();
+  pathRemap.set(folderPath, newBase);
+
+  const collectSubtree = (oldParentPath: string) => {
+    Object.values(index.folders ?? {}).forEach((entry) => {
+      if (entry.parent === oldParentPath) {
+        pathRemap.set(entry.path, `${newBase}${entry.path.slice(folderPath.length)}`);
+        collectSubtree(entry.path);
+      }
+    });
+  };
+  collectSubtree(folderPath);
+
+  const newFolders: Record<string, FolderMeta> = {};
+  Object.values(index.folders ?? {}).forEach((entry) => {
+    if (pathRemap.has(entry.path)) {
+      const remappedPath = pathRemap.get(entry.path)!;
+      const remappedParent = entry.path === folderPath
+        ? normalizedParent
+        : pathRemap.get(entry.parent) ?? entry.parent;
+      newFolders[remappedPath] = {
+        ...entry,
+        id: remappedPath,
+        path: remappedPath,
+        parent: remappedParent,
+      };
+    } else {
+      newFolders[entry.path] = entry;
+    }
+  });
+  index.folders = newFolders;
+
+  Object.values(index.files).forEach((file) => {
+    if (file.folders?.some((fp) => pathRemap.has(fp))) {
+      file.folders = (file.folders ?? []).map((fp) => pathRemap.get(fp) ?? fp);
+    }
+  });
+
+  return newBase;
+}
+
+export function toggleFolderStar(index: GitStoreIndex, folderPath: string): void {
+  const folder = index.folders?.[folderPath];
+  if (!folder) return;
+  folder.starred = !folder.starred;
+}
+
+/**
+ * Count all files inside a folder recursively (self + descendant folders).
+ * Used by folder badges and folder cards.
+ */
+export function getFolderStats(
+  index: GitStoreIndex,
+  folderPath: string
+): { fileCount: number; totalSize: number } {
+  const allFolderPaths = new Set<string>([folderPath]);
+
+  const collectDescendants = (path: string) => {
+    Object.values(index.folders ?? {}).forEach((folder) => {
+      if (folder.parent === path) {
+        allFolderPaths.add(folder.path);
+        collectDescendants(folder.path);
+      }
+    });
+  };
+
+  collectDescendants(folderPath);
+
+  let fileCount = 0;
+  let totalSize = 0;
+
+  Object.values(index.files).forEach((file) => {
+    if (file.trashed) return;
+    const fileFolders = file.folders ?? [];
+    if (fileFolders.some((fp) => allFolderPaths.has(fp))) {
+      fileCount += 1;
+      totalSize += file.size;
+    }
+  });
+
+  return { fileCount, totalSize };
+}
+
+/**
+ * Count direct children of a folder (direct files + direct subfolders).
+ */
+export function getFolderDirectCount(index: GitStoreIndex, folderPath: string): number {
+  const directFiles = Object.values(index.files).filter(
+    (file) => !file.trashed && (file.folders ?? []).includes(folderPath)
+  ).length;
+
+  const directSubfolders = Object.values(index.folders ?? {}).filter(
+    (folder) => folder.parent === folderPath
+  ).length;
+
+  return directFiles + directSubfolders;
 }
 
 export function getNodeFiles(index: GitStoreIndex, nodeId: string): FileRecord[] {

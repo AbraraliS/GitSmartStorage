@@ -19,7 +19,7 @@ export function DropZone({
   showEmptyPrompt,
   className,
 }: DropZoneProps) {
-  const { addFiles, addFilesToFolder } = useUpload();
+  const { addFiles, addFilesToFolder, registerFileInput, promptUpload } = useUpload();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const dragDepth = useRef(0);
@@ -40,8 +40,28 @@ export function DropZone({
   );
 
   useEffect(() => {
-    const openPicker = () => {
-      if (!disabled) inputRef.current?.click();
+    registerFileInput(inputRef.current);
+    return () => registerFileInput(null);
+  }, [registerFileInput]);
+
+  useEffect(() => {
+    const openPicker = (event: Event) => {
+      if (disabled) return;
+
+      const eventFolder =
+        event instanceof CustomEvent &&
+        typeof event.detail?.folder === "string"
+          ? event.detail.folder
+          : undefined;
+
+      const resolvedFolder = targetFolder ?? eventFolder;
+
+      if (resolvedFolder !== undefined) {
+        promptUpload(resolvedFolder);
+        return;
+      }
+
+      promptUpload();
     };
 
     const handleDragEnter = (e: DragEvent) => {
@@ -78,7 +98,7 @@ export function DropZone({
       window.removeEventListener("dragover", handleDragOver);
       window.removeEventListener("drop", handleDrop);
     };
-  }, [disabled, handleFiles]);
+  }, [disabled, handleFiles, targetFolder, promptUpload]);
 
   return (
     <>
@@ -97,7 +117,13 @@ export function DropZone({
       {showEmptyPrompt && (
         <button
           type="button"
-          onClick={() => inputRef.current?.click()}
+          onClick={() => {
+            if (targetFolder !== undefined) {
+              promptUpload(targetFolder);
+            } else {
+              promptUpload();
+            }
+          }}
           className={`relative z-10 flex w-full flex-col items-center rounded-xl border-2 border-dashed border-gray-700 py-12 text-gray-500 transition hover:border-emerald-500/50 hover:text-emerald-500 ${className ?? ""}`}
         >
           <UploadCloudIcon className="h-10 w-10" />

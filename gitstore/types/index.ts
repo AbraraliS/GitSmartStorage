@@ -16,9 +16,12 @@ export interface FolderMeta {
   name: string;
   path: string;
   parent: string;
-  node: string;
+  node?: string;
   created: string;
   coverId?: string;
+  starred?: boolean;
+  trashed?: boolean;
+  trashedAt?: string;
 }
 
 export interface RepoShard {

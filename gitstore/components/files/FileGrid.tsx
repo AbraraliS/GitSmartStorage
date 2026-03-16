@@ -3,16 +3,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { FileRecord } from "@/types";
-import { formatBytes } from "@/lib/format";
 import { FileCard, FolderCard } from "@/components/files/FileCard";
 import { BulkActionBar } from "@/components/files/BulkActionBar";
 import { ContextMenu } from "@/components/files/ContextMenu";
 import { PreviewModal } from "@/components/preview/PreviewModal";
 import {
   addToFolderAction,
+  deleteFolderAction,
+  moveFolderAction,
   moveToTrashAction,
   moveToFolderAction,
   renameFileAction,
+  renameFolderAction,
+  toggleFolderStarAction,
   toggleStarAction,
 } from "@/app/dashboard/actions";
 import { useIndex } from "@/components/providers/IndexContext";
@@ -22,9 +25,6 @@ import { classifyFile } from "@/lib/nodes";
 interface FolderEntry {
   name: string;
   path: string;
-  count: number;
-  totalSize: number;
-  coverSrc?: string;
 }
 
 export function FileGrid({
@@ -38,7 +38,7 @@ export function FileGrid({
   currentFolder?: string;
   isFolderView: boolean;
 }) {
-  const { setIndex } = useIndex();
+  const { setIndex, index: indexData } = useIndex();
   const { addFilesToFolder } = useUpload();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -111,10 +111,59 @@ export function FileGrid({
             <FolderCard
               key={folder.path}
               name={folder.name}
-              count={folder.count}
-              sizeLabel={formatBytes(folder.totalSize)}
-              coverSrc={folder.coverSrc}
+              path={folder.path}
+              index={
+                indexData ?? {
+                  files: {},
+                  nodes: {},
+                  search_index: {},
+                  folders: {},
+                  repoShards: {},
+                  updated_at: "",
+                  version: 2,
+                }
+              }
+              starred={!!indexData?.folders?.[folder.path]?.starred}
               onOpen={() => openFolder(folder.path)}
+              onToggleStar={async () => {
+                const next = await toggleFolderStarAction(folder.path);
+                await setIndex(next);
+              }}
+              onRename={async () => {
+                const newName = window.prompt("Rename folder", folder.name);
+                if (!newName?.trim() || newName.trim() === folder.name) return;
+                const result = await renameFolderAction(folder.path, newName.trim());
+                await setIndex(result.index);
+                if (params.get("path") === folder.path) {
+                  router.replace(`/dashboard?view=folder&path=${encodeURIComponent(result.newPath)}`);
+                }
+              }}
+              onMove={async () => {
+                const defaultParent = folder.path.includes("/")
+                  ? folder.path.split("/").slice(0, -1).join("/")
+                  : "/";
+                const destination = window.prompt(
+                  "Move folder to path (leave empty for root)",
+                  defaultParent || "/"
+                );
+                if (destination === null) return;
+                const result = await moveFolderAction(folder.path, destination.trim() || "/");
+                await setIndex(result.index);
+                if (params.get("path") === folder.path) {
+                  router.replace(`/dashboard?view=folder&path=${encodeURIComponent(result.newPath)}`);
+                }
+              }}
+              onDelete={async () => {
+                const confirmed = window.confirm(
+                  `Delete folder "${folder.name}"?\n\nFiles inside will NOT be deleted — they will move back to the default directory.`
+                );
+                if (!confirmed) return;
+                const next = await deleteFolderAction(folder.path);
+                await setIndex(next);
+                if (params.get("path") === folder.path) {
+                  router.replace("/dashboard");
+                }
+              }}
               onDropFiles={(droppedFiles) => {
                 for (const droppedFile of droppedFiles) {
                   const targetNode = classifyFile(droppedFile.type || "application/octet-stream");

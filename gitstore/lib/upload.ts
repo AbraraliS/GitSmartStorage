@@ -242,8 +242,13 @@ export async function generateThumbnail(blob: Blob): Promise<string | null> {
 export async function prepareChunks(
   file: File,
   basePath: string,
+  hash: string,
   encryptionKey?: CryptoKey
 ): Promise<{ chunks: UploadChunk[]; ivs: string[] }> {
+  if (!hash) {
+    throw new Error("Missing file hash for chunk preparation");
+  }
+
   const rawChunks = sliceFile(file);
   const compress = isCompressible(file.type);
   const isSingleChunk = rawChunks.length === 1;
@@ -268,10 +273,11 @@ export async function prepareChunks(
     }
 
     const content = await blobToBase64(processedBlob);
+    const chunkDir = `${basePath}.parts`;
 
     const chunkPath = isSingleChunk
       ? basePath
-      : `${basePath}.chunks/${String(raw.index).padStart(4, "0")}`;
+      : `${chunkDir}/${String(raw.index).padStart(4, "0")}`;
 
     prepared.push({ index: raw.index, data: content, path: chunkPath, iv: chunkIv });
   }
@@ -437,12 +443,16 @@ export async function runUploadPipeline(
   const date = new Date();
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
-  const basePath = `${year}/${month}/${hash}_${file.name}`;
+  const safeName = file.name
+    .replace(/[^a-zA-Z0-9._-]/g, "_")
+    .replace(/__+/g, "_")
+    .replace(/^_|_$/g, "") || "file";
+  const basePath = `${year}/${month}/${hash}_${safeName}`;
 
   // Generate a per-file AES-256-GCM key for client-side encryption
   const fileKey = ENCRYPTION_ENABLED ? await generateFileKey() : undefined;
 
-  const { chunks, ivs } = await prepareChunks(file, basePath, fileKey);
+  const { chunks, ivs } = await prepareChunks(file, basePath, hash, fileKey);
   reportProgress("uploading", 0, chunks.length);
 
   // Step 6: Upload in batches of 4

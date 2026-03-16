@@ -1,8 +1,21 @@
 "use client";
 
-import { FileIcon, FolderIcon, MoreVerticalIcon } from "lucide-react";
+import { useState } from "react";
+import {
+  FileIcon,
+  FolderIcon,
+  FolderInputIcon,
+  MoreVerticalIcon,
+  PencilIcon,
+  StarIcon,
+  Trash2Icon,
+} from "lucide-react";
 import { formatBytes, formatDate } from "@/lib/format";
-import type { FileRecord } from "@/types";
+import { getFolderStats } from "@/lib/index";
+import type { FileRecord, GitStoreIndex } from "@/types";
+
+const menuItemClass =
+  "flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800";
 
 export function FileCard({
   file,
@@ -58,23 +71,35 @@ export function FileCard({
 
 export function FolderCard({
   name,
-  count,
-  sizeLabel,
+  path,
+  index,
+  starred,
   coverSrc,
   onOpen,
+  onRename,
+  onDelete,
+  onMove,
+  onToggleStar,
   onDropFiles,
 }: {
   name: string;
-  count: number;
-  sizeLabel: string;
+  path: string;
+  index: GitStoreIndex;
+  starred?: boolean;
   coverSrc?: string;
   onOpen: () => void;
+  onRename: () => void;
+  onDelete: () => void;
+  onMove: () => void;
+  onToggleStar: () => void;
   onDropFiles?: (files: File[]) => void;
 }) {
+  const stats = getFolderStats(index, path);
+  const [menuOpen, setMenuOpen] = useState(false);
+
   return (
-    <button
-      type="button"
-      onClick={onOpen}
+    <div
+      className="group relative rounded-xl border border-gray-200 transition hover:ring-2 hover:ring-blue-500 dark:border-gray-800"
       onDragOver={(event) => {
         if (!onDropFiles) return;
         event.preventDefault();
@@ -84,21 +109,103 @@ export function FolderCard({
         event.preventDefault();
         onDropFiles(Array.from(event.dataTransfer?.files ?? []));
       }}
-      className="group rounded-xl border border-gray-200 p-3 text-left transition hover:ring-2 hover:ring-blue-500 dark:border-gray-800"
     >
-      <div className="mb-3 flex h-24 items-center justify-center rounded-lg bg-amber-50 dark:bg-amber-950/30">
-        {coverSrc ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={coverSrc} alt={name} className="h-full w-full rounded-lg object-cover" />
-        ) : (
-          <FolderIcon className="h-10 w-10 text-amber-500" />
+      <div className="absolute right-2 top-2 z-10 opacity-0 transition-opacity group-hover:opacity-100">
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            setMenuOpen((value) => !value);
+          }}
+          className="rounded p-1 hover:bg-gray-100 dark:hover:bg-gray-800"
+          aria-label="Folder options"
+        >
+          <MoreVerticalIcon className="h-4 w-4" />
+        </button>
+
+        {menuOpen && (
+          <div
+            className="absolute right-0 top-7 z-20 min-w-40 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-900"
+            onMouseLeave={() => setMenuOpen(false)}
+          >
+            <button
+              type="button"
+              className={menuItemClass}
+              onClick={(event) => {
+                event.stopPropagation();
+                onToggleStar();
+                setMenuOpen(false);
+              }}
+            >
+              <StarIcon className="h-4 w-4" />
+              {starred ? "Unstar" : "Star"}
+            </button>
+            <button
+              type="button"
+              className={menuItemClass}
+              onClick={(event) => {
+                event.stopPropagation();
+                onRename();
+                setMenuOpen(false);
+              }}
+            >
+              <PencilIcon className="h-4 w-4" />
+              Rename
+            </button>
+            <button
+              type="button"
+              className={menuItemClass}
+              onClick={(event) => {
+                event.stopPropagation();
+                onMove();
+                setMenuOpen(false);
+              }}
+            >
+              <FolderInputIcon className="h-4 w-4" />
+              Move to...
+            </button>
+            <div className="my-1 border-t border-gray-200 dark:border-gray-700" />
+            <button
+              type="button"
+              className={`${menuItemClass} text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20`}
+              onClick={(event) => {
+                event.stopPropagation();
+                onDelete();
+                setMenuOpen(false);
+              }}
+            >
+              <Trash2Icon className="h-4 w-4" />
+              Delete folder
+            </button>
+          </div>
         )}
       </div>
+
+      <button
+        type="button"
+        onClick={onOpen}
+        className="w-full p-3 text-left"
+      >
+        <div className="relative mb-3 flex h-24 items-center justify-center rounded-lg bg-amber-50 dark:bg-amber-950/30">
+          {coverSrc ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={coverSrc} alt={name} className="h-full w-full rounded-lg object-cover" />
+          ) : (
+            <FolderIcon className="h-10 w-10 text-amber-500" />
+          )}
+          {starred && (
+            <StarIcon className="absolute bottom-2 right-2 h-3.5 w-3.5 fill-amber-400 text-amber-400" />
+          )}
+        </div>
       <div className="flex items-center justify-between gap-2">
         <p className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">{name}</p>
-        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] text-gray-500 dark:bg-gray-800 dark:text-gray-400">{count}</span>
+        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] text-gray-500 dark:bg-gray-800 dark:text-gray-400">{stats.fileCount}</span>
       </div>
-      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{sizeLabel}</p>
-    </button>
+      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+        {stats.fileCount} item{stats.fileCount !== 1 ? "s" : ""}
+        {stats.totalSize > 0 ? ` · ${formatBytes(stats.totalSize)}` : ""}
+      </p>
+      </button>
+    </div>
   );
 }

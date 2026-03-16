@@ -5,11 +5,13 @@ import {
   addFileToFolder,
   addFileToIndex,
   createFolder,
-  deleteFolder,
+  deleteFolderFromIndex,
   emptyIndex,
-  renameFolder,
+  moveFolderInIndex,
+  renameFolderInIndex,
   removeFileFromFolder,
   removeFileFromIndex,
+  toggleFolderStar,
 } from "@/lib/index";
 import { createOctokit, readRemoteIndex, writeRemoteIndex } from "@/lib/github";
 import type { GitStoreIndex } from "@/types";
@@ -67,15 +69,34 @@ export async function createFolderAction(
 
 export async function deleteFolderAction(path: string): Promise<GitStoreIndex> {
   const { octokit, login, index, masterSha } = await getContext();
-  deleteFolder(index, path);
+  deleteFolderFromIndex(index, path);
 
   return persistIndex(octokit, login, index, masterSha);
 }
 
-export async function renameFolderAction(fromPath: string, toPath: string): Promise<GitStoreIndex> {
+export async function renameFolderAction(
+  fromPath: string,
+  newName: string
+): Promise<{ index: GitStoreIndex; newPath: string }> {
   const { octokit, login, index, masterSha } = await getContext();
-  renameFolder(index, fromPath, toPath);
+  const newPath = renameFolderInIndex(index, fromPath, newName);
+  const updatedIndex = await persistIndex(octokit, login, index, masterSha);
+  return { index: updatedIndex, newPath };
+}
 
+export async function moveFolderAction(
+  folderPath: string,
+  newParentPath: string
+): Promise<{ index: GitStoreIndex; newPath: string }> {
+  const { octokit, login, index, masterSha } = await getContext();
+  const newPath = moveFolderInIndex(index, folderPath, newParentPath);
+  const updatedIndex = await persistIndex(octokit, login, index, masterSha);
+  return { index: updatedIndex, newPath };
+}
+
+export async function toggleFolderStarAction(folderPath: string): Promise<GitStoreIndex> {
+  const { octokit, login, index, masterSha } = await getContext();
+  toggleFolderStar(index, folderPath);
   return persistIndex(octokit, login, index, masterSha);
 }
 
@@ -192,8 +213,12 @@ export async function enrichUploadedFileAction(
 
   index.files[hash] = {
     ...current,
-    ...patch,
+    thumbnail: patch.thumbnail ?? current.thumbnail,
     folders: patch.folders ?? current.folders ?? [],
+    starred: patch.starred ?? current.starred ?? false,
+    trashed: patch.trashed ?? current.trashed ?? false,
+    trashedAt: patch.trashedAt ?? current.trashedAt,
+    repo: patch.repo ?? current.repo,
   };
   return persistIndex(octokit, login, index, masterSha);
 }

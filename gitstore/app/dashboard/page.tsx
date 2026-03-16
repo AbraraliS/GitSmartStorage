@@ -5,7 +5,6 @@ import { useSearchParams } from "next/navigation";
 import { FolderOpenIcon, FolderPlusIcon, SearchIcon, Trash2Icon, UploadCloudIcon } from "lucide-react";
 import { useIndex } from "@/components/providers/IndexContext";
 import {
-  getFilesInFolder,
   getSmartFolderFiles,
   getStarredFiles,
   getSubFoldersOf,
@@ -20,18 +19,6 @@ import { DropZone } from "@/components/upload/DropZone";
 interface FolderEntry {
   name: string;
   path: string;
-  count: number;
-  totalSize: number;
-  coverSrc?: string;
-}
-
-function getFolderStats(index: NonNullable<ReturnType<typeof useIndex>["index"]>, path: string) {
-  const files = getFilesInFolder(index, path);
-  return {
-    count: files.length,
-    totalSize: files.reduce((sum, file) => sum + file.size, 0),
-    coverSrc: files.find((file) => file.thumbnail)?.thumbnail,
-  };
 }
 
 export default function DashboardPage() {
@@ -57,18 +44,10 @@ export default function DashboardPage() {
 
   const computed = useMemo(() => {
     if (!index) return { files: [], folders: [] as FolderEntry[] };
-
-    const toFolderEntry = (folderPath: string): FolderEntry => {
-      const folder = index.folders?.[folderPath];
-      const stats = getFolderStats(index, folderPath);
-      return {
-        name: folder?.name ?? folderPath.split("/").pop() ?? folderPath,
-        path: folderPath,
-        count: stats.count,
-        totalSize: stats.totalSize,
-        coverSrc: stats.coverSrc,
-      };
-    };
+    const toFolderEntry = (folderPath: string): FolderEntry => ({
+      name: index.folders?.[folderPath]?.name ?? folderPath.split("/").pop() ?? folderPath,
+      path: folderPath,
+    });
 
     if (q.trim()) {
       return {
@@ -81,14 +60,19 @@ export default function DashboardPage() {
       return {
         files: Object.values(index.files)
           .filter((f) => !f.trashed)
-          .sort((a, b) => +new Date(b.created) - +new Date(a.created))
-          .slice(0, 20),
+          .sort((a, b) => new Date(b.created).getTime() - new Date(a.created).getTime())
+          .slice(0, 50),
         folders: [] as FolderEntry[],
       };
     }
 
     if (view === "starred") {
-      return { files: getStarredFiles(index), folders: [] as FolderEntry[] };
+      return {
+        files: getStarredFiles(index),
+        folders: Object.values(index.folders ?? {})
+          .filter((folder) => folder.starred && !folder.trashed)
+          .map((folder) => ({ name: folder.name, path: folder.path })),
+      };
     }
 
     if (view === "trash") {
@@ -111,17 +95,17 @@ export default function DashboardPage() {
     if (view === "folder") {
       const folderPath = path || "/";
       return {
-        files: getFilesInFolder(index, folderPath),
+        files: Object.values(index.files).filter(
+          (f) => !f.trashed && (f.folders ?? []).includes(folderPath)
+        ),
         folders: getSubFoldersOf(index, folderPath).map((folder) => toFolderEntry(folder.path)),
       };
     }
 
     if (node) {
       return {
-        files: Object.values(index.files).filter(
-          (file) => !file.trashed && file.node === node && (!file.folders || file.folders.length === 0)
-        ),
-        folders: getSubFoldersOf(index, "/").map((folder) => toFolderEntry(folder.path)),
+        files: Object.values(index.files).filter((f) => !f.trashed && f.node === node),
+        folders: [] as FolderEntry[],
       };
     }
 

@@ -7,7 +7,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/auth";
-import { createOctokit, putFile, assertOwner } from "@/lib/github";
+import { createOctokit, putFile, assertOwner, ensureRepo } from "@/lib/github";
 import { checkRateLimit } from "@/lib/ratelimit";
 
 const ChunkSchema = z.object({
@@ -56,10 +56,40 @@ export async function PUT(req: NextRequest) {
 
   try {
     const octokit = createOctokit(accessToken);
-    const blobSha = await putFile(octokit, { owner: login, repo, path, content, sha });
+
+    const writeChunk = async (resolvedSha?: string) =>
+      putFile(octokit, { owner: login, repo, path, content, sha: resolvedSha });
+
+    let blobSha: string;
+    try {
+      blobSha = await writeChunk(sha);
+    } catch (err: unknown) {
+      const status = (err as { status?: number })?.status;
+
+      if (status === 404) {
+        // Repo can be missing if index points to a shard created elsewhere.
+        await ensureRepo(octokit, login, repo);
+        blobSha = await writeChunk(sha);
+      } else if ((status === 409 || status === 422) && !sha) {
+        // If file already exists, retry with its current SHA.
+        const existing = await octokit.repos.getContent({ owner: login, repo, path });
+        if (!Array.isArray(existing.data) && existing.data.type === "file") {
+          blobSha = await writeChunk(existing.data.sha);
+        } else {
+          throw err;
+        }
+      } else {
+        throw err;
+      }
+    }
+
     return NextResponse.json({ ok: true, sha: blobSha });
   } catch (err) {
+    const status = (err as { status?: number })?.status;
     const message = err instanceof Error ? err.message : "Upload failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json(
+      { error: message, status: status ?? 500 },
+      { status: status && status >= 400 && status < 600 ? status : 500 }
+    );
   }
 }
