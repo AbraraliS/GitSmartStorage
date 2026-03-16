@@ -80,17 +80,20 @@ function FolderTreeItem({
   onSelect,
   depth,
   disabledPaths,
+  highlightPath,
 }: {
   node: FolderNode;
   selected: string;
   onSelect: (path: string) => void;
   depth: number;
   disabledPaths?: Set<string>;
+  highlightPath?: string;
 }) {
   const [expanded, setExpanded] = useState(depth < 1);
   const isSelected = selected === node.path;
   const hasChildren = node.children.length > 0;
   const isDisabled = disabledPaths?.has(node.path) ?? false;
+  const isHighlighted = highlightPath === node.path;
 
   return (
     <div>
@@ -122,6 +125,8 @@ function FolderTreeItem({
               ? "cursor-not-allowed opacity-40 text-gray-500"
               : isSelected
               ? "bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/30"
+              : isHighlighted
+              ? "bg-emerald-500/10 text-gray-200 ring-1 ring-emerald-500/20"
               : "text-gray-300 hover:bg-gray-800"
           }`}
         >
@@ -150,6 +155,7 @@ function FolderTreeItem({
               onSelect={onSelect}
               depth={depth + 1}
               disabledPaths={disabledPaths}
+              highlightPath={highlightPath}
             />
           ))}
         </div>
@@ -169,6 +175,8 @@ export interface FolderTreeProps {
   showRoot?: boolean;
   /** If set, only render folders whose path contains this query (case-insensitive) */
   searchQuery?: string;
+  /** Path of the folder to flash with a highlight (e.g. just after creation) */
+  highlightPath?: string;
 }
 
 export function FolderTree({
@@ -178,6 +186,7 @@ export function FolderTree({
   disabledPaths,
   showRoot = false,
   searchQuery = "",
+  highlightPath,
 }: FolderTreeProps) {
   const folderTree = useMemo(() => buildFolderTree(index), [index]);
   const allPaths = useMemo(() => flattenTree(folderTree), [folderTree]);
@@ -257,6 +266,7 @@ export function FolderTree({
             onSelect={onSelect}
             depth={0}
             disabledPaths={disabledPaths}
+            highlightPath={highlightPath}
           />
         ))
       )}

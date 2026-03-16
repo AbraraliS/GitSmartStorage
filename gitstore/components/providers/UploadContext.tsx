@@ -185,18 +185,6 @@ export function UploadProvider({ children }: { children: ReactNode }) {
           throw new Error((err as { error?: string }).error ?? "Upload commit failed");
         }
 
-        // Ensure the folder entry exists in the index (non-fatal)
-        if (targetFolder && targetFolder !== "/") {
-          const { createFolderAction } = await import("@/app/dashboard/actions");
-          const folderName = targetFolder.split("/").pop() ?? targetFolder;
-          const parentPath = targetFolder.includes("/")
-            ? targetFolder.split("/").slice(0, -1).join("/")
-            : "/";
-          await createFolderAction(folderName, parentPath, record.node).catch(() => {
-            // folder may already exist
-          });
-        }
-
         await refresh(true);
 
         updateItem(id, {
