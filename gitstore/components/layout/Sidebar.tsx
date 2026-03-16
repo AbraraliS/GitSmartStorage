@@ -17,6 +17,7 @@ import {
   MusicIcon,
   MoreVerticalIcon,
   FolderInputIcon,
+  FolderPlusIcon,
   PencilIcon,
   PlusIcon,
   StarIcon,
@@ -32,8 +33,12 @@ import {
 } from "@/app/dashboard/actions";
 import { NewButton } from "@/components/layout/NewButton";
 import { useIndex } from "@/components/providers/IndexContext";
+import { useUpload } from "@/components/providers/UploadContext";
 import { getFolderStats, getSubFoldersOf } from "@/lib/index";
 import { NODE_DEFINITIONS } from "@/lib/nodes";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { RenameDialog } from "@/components/ui/RenameDialog";
+import { MoveDialog } from "@/components/ui/MoveDialog";
 
 const ICONS: Record<string, ComponentType<{ className?: string }>> = {
   ImageIcon,
@@ -108,11 +113,18 @@ function formatMonth(value: string): string {
 
 export function Sidebar() {
   const { index, loading, setIndex } = useIndex();
+  const { triggerUpload } = useUpload();
   const params = useSearchParams();
   const router = useRouter();
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [collapseHydrated, setCollapseHydrated] = useState(false);
   const [menu, setMenu] = useState<{ path: string; x: number; y: number } | null>(null);
+
+  // ── Modal state ─────────────────────────────────────────────────────────
+  const [renameTarget, setRenameTarget] = useState<{ path: string; name: string } | null>(null);
+  const [createFolderParent, setCreateFolderParent] = useState<string | null>(null);
+  const [moveTarget, setMoveTarget] = useState<{ path: string; name: string } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ path: string; name: string } | null>(null);
 
   const view = params.get("view") ?? "";
   const node = params.get("node") ?? "";
@@ -341,23 +353,18 @@ export function Sidebar() {
               collapsed={sectionCollapsed.folders}
               onToggle={() => toggleCollapsed("folders")}
               extra={
-                <button
-                  type="button"
-                  className="rounded-lg p-1 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
-                  onClick={async () => {
-                    const nextPath = window.prompt("Create folder", "New Folder");
-                    if (!nextPath?.trim()) return;
-                    const defaultNode = activePath
-                      ? index?.folders?.[activePath]?.node ?? node ?? "documents"
-                      : node || "documents";
-                    const next = await createFolderAction(nextPath.trim(), activePath || "/", defaultNode);
-                    await setIndex(next);
-                  }}
-                  aria-label="Create folder"
-                >
-                  <PlusIcon className="h-4 w-4" />
-                </button>
-              }
+            <button
+              type="button"
+              className="rounded-lg p-1 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
+              onClick={() => {
+                const parent = activePath || "/";
+                setCreateFolderParent(parent);
+              }}
+              aria-label="Create folder"
+            >
+              <PlusIcon className="h-4 w-4" />
+            </button>
+          }
             />
             {!sectionCollapsed.folders && <div className="space-y-1">{renderFolderTree(rootFolders, 0)}</div>}
           </section>
@@ -432,17 +439,11 @@ export function Sidebar() {
           <button
             type="button"
             className="block w-full px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800"
-            onClick={async () => {
-              const currentPath = menu.path;
+            onClick={() => {
+              const path = menu.path;
+              const name = path.split("/").filter(Boolean).at(-1) ?? path;
               setMenu(null);
-              const currentName = currentPath.split("/").filter(Boolean).at(-1) ?? currentPath;
-              const nextValue = window.prompt("Rename folder", currentName);
-              if (!nextValue?.trim()) return;
-              const result = await renameFolderAction(currentPath, nextValue.trim());
-              await setIndex(result.index);
-              if (activePath === currentPath) {
-                router.replace(`/dashboard?view=folder&path=${encodeURIComponent(result.newPath)}`);
-              }
+              setRenameTarget({ path, name });
             }}
           >
             <span className="inline-flex items-center gap-2">
@@ -453,18 +454,11 @@ export function Sidebar() {
           <button
             type="button"
             className="block w-full px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800"
-            onClick={async () => {
-              const currentPath = menu.path;
+            onClick={() => {
+              const path = menu.path;
+              const name = path.split("/").filter(Boolean).at(-1) ?? path;
               setMenu(null);
-              const currentFolder = safeIndex.folders?.[currentPath];
-              const defaultParent = currentFolder?.parent ?? "/";
-              const nextParent = window.prompt("Move folder to path (leave empty for root)", defaultParent);
-              if (nextParent === null) return;
-              const result = await moveFolderAction(currentPath, nextParent.trim() || "/");
-              await setIndex(result.index);
-              if (activePath === currentPath) {
-                router.replace(`/dashboard?view=folder&path=${encodeURIComponent(result.newPath)}`);
-              }
+              setMoveTarget({ path, name });
             }}
           >
             <span className="inline-flex items-center gap-2">
@@ -491,7 +485,7 @@ export function Sidebar() {
             type="button"
             className="block w-full px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800"
             onClick={() => {
-              window.dispatchEvent(new CustomEvent("gitstore:new-upload", { detail: { folder: menu.path } }));
+              triggerUpload({ targetFolder: menu.path });
               setMenu(null);
             }}
           >
@@ -500,24 +494,103 @@ export function Sidebar() {
           <button
             type="button"
             className="block w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
-            onClick={async () => {
-              const currentPath = menu.path;
+            onClick={() => {
+              const path = menu.path;
+              const name = path.split("/").filter(Boolean).at(-1) ?? path;
               setMenu(null);
-              const currentName = currentPath.split("/").filter(Boolean).at(-1) ?? currentPath;
-              const confirmed = window.confirm(
-                `Delete folder "${currentName}"?\n\nFiles inside will NOT be deleted - they will move back to the default directory.`
-              );
-              if (!confirmed) return;
-              const next = await deleteFolderAction(currentPath);
-              await setIndex(next);
-              if (activePath === currentPath) {
-                router.replace("/dashboard");
-              }
+              setDeleteTarget({ path, name });
             }}
           >
             Delete folder
           </button>
         </div>
+      )}
+
+      {/* ── Create folder dialog ─────────────────────────────────────────── */}
+      {createFolderParent !== null && (
+        <RenameDialog
+          open
+          currentName=""
+          type="folder"
+          onConfirm={async (folderName) => {
+            const parent = createFolderParent;
+            const defaultNode = parent && parent !== "/"
+              ? index?.folders?.[parent]?.node ?? node ?? "documents"
+              : node || "documents";
+            const next = await createFolderAction(folderName, parent, defaultNode);
+            await setIndex(next);
+            setCreateFolderParent(null);
+          }}
+          onCancel={() => setCreateFolderParent(null)}
+        />
+      )}
+
+      {/* ── Rename folder dialog ─────────────────────────────────────────── */}
+      {renameTarget && (
+        <RenameDialog
+          open
+          currentName={renameTarget.name}
+          type="folder"
+          onConfirm={async (newName) => {
+            const result = await renameFolderAction(renameTarget.path, newName);
+            await setIndex(result.index);
+            if (activePath === renameTarget.path) {
+              router.replace(`/dashboard?view=folder&path=${encodeURIComponent(result.newPath)}`);
+            }
+            setRenameTarget(null);
+          }}
+          onCancel={() => setRenameTarget(null)}
+        />
+      )}
+
+      {/* ── Move folder dialog ───────────────────────────────────────────── */}
+      {moveTarget && index && (
+        <MoveDialog
+          open
+          itemName={moveTarget.name}
+          itemType="folder"
+          currentLocation={
+            moveTarget.path.includes("/")
+              ? moveTarget.path.split("/").slice(0, -1).join("/")
+              : "/"
+          }
+          disabledPaths={[
+            moveTarget.path,
+            ...Object.keys(index.folders ?? {}).filter((p) =>
+              p.startsWith(moveTarget.path + "/")
+            ),
+          ]}
+          index={index}
+          onConfirm={async (dest) => {
+            const result = await moveFolderAction(moveTarget.path, dest);
+            await setIndex(result.index);
+            if (activePath === moveTarget.path) {
+              router.replace(`/dashboard?view=folder&path=${encodeURIComponent(result.newPath)}`);
+            }
+            setMoveTarget(null);
+          }}
+          onCancel={() => setMoveTarget(null)}
+        />
+      )}
+
+      {/* ── Delete folder dialog ─────────────────────────────────────────── */}
+      {deleteTarget && (
+        <ConfirmDialog
+          open
+          title={`Delete folder "${deleteTarget.name}"?`}
+          description="The folder will be removed. Files inside will NOT be deleted — they will return to the default directory."
+          confirmLabel="Delete folder"
+          confirmVariant="danger"
+          onConfirm={async () => {
+            const next = await deleteFolderAction(deleteTarget.path);
+            await setIndex(next);
+            if (activePath === deleteTarget.path) {
+              router.replace("/dashboard");
+            }
+            setDeleteTarget(null);
+          }}
+          onCancel={() => setDeleteTarget(null)}
+        />
       )}
 
       <nav className="fixed inset-x-0 bottom-0 z-40 grid h-14 grid-cols-4 border-t border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900 md:hidden">

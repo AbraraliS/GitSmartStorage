@@ -13,10 +13,9 @@ import { useSession } from "next-auth/react";
 import type { FileRecord, UploadProgress } from "@/types";
 import { runUploadPipeline } from "@/lib/upload";
 import { useIndex } from "@/components/providers/IndexContext";
-import { enrichUploadedFileAction } from "@/app/dashboard/actions";
 import { FolderPickerDialog } from "@/components/folders/FolderPickerDialog";
 
-// ─── Types ──────────────────────────────────────────────────────────────────
+// ─── Types ───────────────────────────────────────────────────────────────────
 
 export interface UploadItem {
   id: string;
@@ -29,27 +28,19 @@ export interface UploadItem {
   targetFolder?: string;
 }
 
-interface PendingUpload {
-  id: string;
-  file: File;
-  options: {
-    userOverride?: string;
-    tags?: string[];
-    sessionCsrfToken?: string;
-  };
-}
-
 interface UploadContextValue {
   uploads: UploadItem[];
   minimized: boolean;
   setMinimized: (value: boolean) => void;
-  registerFileInput: (ref: HTMLInputElement | null) => void;
-  promptUpload: (folderPath?: string) => void;
-  /** Queue files for upload — shows folder picker first */
-  addFiles: (files: File[], options?: { userOverride?: string; tags?: string[] }) => void;
-  /** Skip folder picker and upload directly to a known folder */
-  addFilesToFolder: (files: File[], folderPath: string, options?: { userOverride?: string; tags?: string[] }) => void;
+  /** Shows folder picker first, then opens file input */
+  triggerUpload: (options?: { targetFolder?: string }) => void;
+  /** For drag-and-drop — files already chosen, show folder picker */
+  uploadFiles: (files: File[]) => void;
+  /** Skip picker — upload directly to a known folder */
+  uploadFilesToFolder: (files: File[], folderPath: string) => void;
   clearCompleted: () => void;
+  /** Register the hidden file input element with the context */
+  registerFileInput: (el: HTMLInputElement | null) => void;
 }
 
 // ─── Context ─────────────────────────────────────────────────────────────────
@@ -65,88 +56,98 @@ export function UploadProvider({ children }: { children: ReactNode }) {
   const [uploads, setUploads] = useState<UploadItem[]>([]);
   const [minimized, setMinimized] = useState(false);
 
-  // Files waiting for folder selection
-  const [pendingFiles, setPendingFiles] = useState<PendingUpload[] | null>(null);
-  const [pendingFolderForUpload, setPendingFolderForUpload] = useState(false);
-  const [selectedFolderForNextUpload, setSelectedFolderForNextUpload] = useState<string | null>(null);
+  // Folder picker state
+  const [pickerOpen, setPickerOpen] = useState(false);
+  // Files waiting for folder pick (drag-and-drop path)
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  // IDs of tray items waiting for folder pick
+  const [pendingIds, setPendingIds] = useState<string[]>([]);
+  // True when picker was opened by triggerUpload — we open file input after confirm
+  const [openFileInputAfterPick, setOpenFileInputAfterPick] = useState(false);
 
-  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  // Folder chosen via picker; read by handleFilesFromInput.
+  // useRef instead of sessionStorage: tab-isolated and synchronous.
+  const pendingFolderRef = useRef<string>("/");
+  const autoDismissRef = useRef<NodeJS.Timeout | null>(null);
+
+  const registerFileInput = useCallback((el: HTMLInputElement | null) => {
+    fileInputRef.current = el;
+  }, []);
 
   // ── helpers ──────────────────────────────────────────────────────────────
 
-  const updateItem = useCallback(
-    (id: string, patch: Partial<UploadItem>) => {
-      setUploads((prev) =>
-        prev.map((u) => (u.id === id ? { ...u, ...patch } : u))
-      );
-    },
-    []
-  );
+  const updateItem = useCallback((id: string, patch: Partial<UploadItem>) => {
+    setUploads((prev) => prev.map((u) => (u.id === id ? { ...u, ...patch } : u)));
+  }, []);
 
   const maybeAutoDismiss = useCallback(() => {
     setUploads((current) => {
-      if (current.length === 0) return current;
-      const allDone = current.every(
-        (u) => u.status === "done" || u.status === "error"
-      );
+      const allDone =
+        current.length > 0 &&
+        current.every((u) => u.status === "done" || u.status === "error");
       if (allDone) {
-        if (timeoutRef.current) clearTimeout(timeoutRef.current);
-        timeoutRef.current = setTimeout(() => setUploads([]), 4000);
+        if (autoDismissRef.current) clearTimeout(autoDismissRef.current);
+        autoDismissRef.current = setTimeout(() => setUploads([]), 5000);
       }
       return current;
     });
   }, []);
 
-  const registerFileInput = useCallback((ref: HTMLInputElement | null) => {
-    fileInputRef.current = ref;
-  }, []);
-
-  const promptUpload = useCallback((folderPath?: string) => {
-    const resolved = folderPath?.trim();
-
-    // If a concrete destination is already known, skip picker and open files.
-    if (resolved && resolved !== "/") {
-      setSelectedFolderForNextUpload(resolved);
-      setPendingFolderForUpload(false);
-      setPendingFiles(null);
-      setMinimized(false);
-      setTimeout(() => {
-        fileInputRef.current?.click();
-      }, 50);
-      return;
-    }
-
-    // Default flow: pick folder first, then open file picker.
-    setPendingFolderForUpload(true);
-    setPendingFiles(null);
-    setSelectedFolderForNextUpload(null);
-    setMinimized(false);
-  }, []);
-
   // ── core upload runner ────────────────────────────────────────────────────
 
   const runUpload = useCallback(
-    async (pending: PendingUpload, targetFolder: string) => {
-      const { id, file, options } = pending;
+    async (id: string, file: File, targetFolder: string, tags: string[] = []) => {
       const csrfToken =
         (session as unknown as { csrfToken?: string } | null)?.csrfToken ?? "";
+
+      // Resolve node and repo from index by MIME type
+      const nodeEntries = Object.values(index?.nodes ?? {});
+      const mimeToNodeId: Record<string, string> = {
+        "image/": "photos",
+        "video/": "videos",
+        "audio/": "audio",
+      };
+
+      let resolvedNode = nodeEntries[0]?.id ?? "documents";
+      let resolvedRepo = nodeEntries[0]?.repo ?? "gitstore-documents";
+
+      for (const [mimePrefix, nodeId] of Object.entries(mimeToNodeId)) {
+        if (file.type.startsWith(mimePrefix)) {
+          const match = nodeEntries.find((n) => n.id === nodeId);
+          if (match) {
+            resolvedNode = match.id;
+            resolvedRepo = match.repo;
+            break;
+          }
+        }
+      }
+
+      // Fall back to the "documents" node when no MIME match was found
+      if (resolvedNode === (nodeEntries[0]?.id ?? "documents")) {
+        const docsNode = nodeEntries.find((n) => n.id === "documents");
+        if (docsNode && !["photos", "videos", "audio"].includes(resolvedNode)) {
+          resolvedNode = docsNode.id;
+          resolvedRepo = docsNode.repo;
+        }
+      }
 
       updateItem(id, { status: "hashing", targetFolder });
 
       try {
         const result = await runUploadPipeline({
           file,
-          userOverride: options.userOverride,
-          tags: options.tags,
+          nodeRepo: resolvedRepo,
+          nodeName: resolvedNode,
+          folder: targetFolder,
+          tags,
           sessionCsrfToken: csrfToken,
-          onProgress: (p) => {
+          onProgress: (p) =>
             updateItem(id, {
               status: p.status,
               totalChunks: p.totalChunks,
               uploadedChunks: p.uploadedChunks,
-            });
-          },
+            }),
         });
 
         if (result.skipped) {
@@ -155,7 +156,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        // Build record
+        // Build the full record — folders and thumbnail in a single write
         const record: FileRecord = {
           hash: result.hash,
           name: file.name,
@@ -163,126 +164,107 @@ export function UploadProvider({ children }: { children: ReactNode }) {
           path: result.path,
           size: file.size,
           type: file.type || "application/octet-stream",
-          tags: options.tags ?? [],
+          tags,
           created: new Date().toISOString(),
           sync_status: "syncing",
           chunks: result.chunks.length > 1 ? result.chunks : undefined,
           iv: result.iv,
           encryptionKey: result.encryptionKey,
-          // Set folder pointers
-          folders:
-            targetFolder && targetFolder !== "/"
-              ? [targetFolder]
-              : [],
+          folders: targetFolder && targetFolder !== "/" ? [targetFolder] : [],
+          thumbnail: result.thumbnail ?? undefined,
         };
 
-        // Commit to index
-        const completeRes = await fetch("/api/upload/complete", {
+        // Single index write — no second write from enrichUploadedFileAction
+        const res = await fetch("/api/upload/complete", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ records: [record] }),
         });
-        if (!completeRes.ok) {
-          const payload = await completeRes
-            .json()
-            .catch(() => ({ error: "Upload commit failed" }));
-          throw new Error(payload.error ?? "Upload commit failed");
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: "Commit failed" }));
+          throw new Error((err as { error?: string }).error ?? "Upload commit failed");
         }
 
-        // Enrich with thumbnail + folder info
-        await enrichUploadedFileAction(result.hash, {
-          thumbnail: result.thumbnail ?? undefined,
-          folders: record.folders,
-          starred: false,
-          trashed: false,
-        });
+        // Ensure the folder entry exists in the index (non-fatal)
+        if (targetFolder && targetFolder !== "/") {
+          const { createFolderAction } = await import("@/app/dashboard/actions");
+          const folderName = targetFolder.split("/").pop() ?? targetFolder;
+          const parentPath = targetFolder.includes("/")
+            ? targetFolder.split("/").slice(0, -1).join("/")
+            : "/";
+          await createFolderAction(folderName, parentPath, record.node).catch(() => {
+            // folder may already exist
+          });
+        }
 
-        await new Promise((r) => setTimeout(r, 800));
         await refresh(true);
 
         updateItem(id, {
           status: "done",
           hash: result.hash,
-          uploadedChunks: result.chunks.length,
+          uploadedChunks: result.chunks.length || 1,
         });
         maybeAutoDismiss();
       } catch (err) {
+        console.error("[upload] Failed:", err);
         updateItem(id, {
           status: "error",
           error: err instanceof Error ? err.message : "Upload failed",
         });
       }
     },
-    [session, updateItem, maybeAutoDismiss, refresh]
+    [session, index, updateItem, maybeAutoDismiss, refresh]
   );
 
-  // ── folder picker confirmation ────────────────────────────────────────────
+  // ── folder picker handlers ────────────────────────────────────────────────
 
-  const handleFolderConfirm = useCallback(
+  const handlePickerConfirm = useCallback(
     (folderPath: string) => {
-      if (pendingFolderForUpload) {
-        setPendingFolderForUpload(false);
-        setPendingFiles(null);
-        setSelectedFolderForNextUpload(folderPath);
-        setTimeout(() => {
-          fileInputRef.current?.click();
-        }, 50);
+      setPickerOpen(false);
+
+      if (openFileInputAfterPick) {
+        // triggerUpload path — store folder then open file input
+        setOpenFileInputAfterPick(false);
+        pendingFolderRef.current = folderPath;
+        setTimeout(() => fileInputRef.current?.click(), 50);
         return;
       }
 
+      // uploadFiles (drag-drop) path — start queued uploads now
       const files = pendingFiles;
-      setPendingFiles(null);
-      if (!files) return;
+      const ids = pendingIds;
+      setPendingFiles([]);
+      setPendingIds([]);
 
-      // Start all queued uploads now that we have a folder
-      files.forEach((pending) => {
-        updateItem(pending.id, {
-          status: "hashing",
-          targetFolder: folderPath,
-        });
-        void runUpload(pending, folderPath);
+      files.forEach((file, i) => {
+        const id = ids[i];
+        if (!id) return;
+        updateItem(id, { status: "hashing", targetFolder: folderPath });
+        void runUpload(id, file, folderPath);
       });
     },
-    [pendingFiles, pendingFolderForUpload, runUpload, updateItem]
+    [openFileInputAfterPick, pendingFiles, pendingIds, runUpload, updateItem]
   );
 
-  const handleFolderCancel = useCallback(() => {
-    if (pendingFolderForUpload) {
-      setPendingFolderForUpload(false);
-      setSelectedFolderForNextUpload(null);
-      return;
-    }
-
-    // Remove the waiting items from the tray
-    setPendingFiles((pending) => {
-      if (pending) {
-        const ids = new Set(pending.map((p) => p.id));
-        setUploads((prev) => prev.filter((u) => !ids.has(u.id)));
-      }
-      return null;
+  const handlePickerCancel = useCallback(() => {
+    setPickerOpen(false);
+    setOpenFileInputAfterPick(false);
+    pendingFolderRef.current = "/";
+    // Remove waiting items from tray
+    setPendingIds((ids) => {
+      setUploads((prev) => prev.filter((u) => !ids.includes(u.id)));
+      return [];
     });
-  }, [pendingFolderForUpload]);
+    setPendingFiles([]);
+  }, []);
 
-  // ── public API ────────────────────────────────────────────────────────────
+  // ── file input handler ────────────────────────────────────────────────────
 
-  /**
-   * Queue files and show the folder picker before uploading.
-   * This is the main entry point — used by DropZone and the New button.
-   */
-  const addFilesToFolder = useCallback(
-    (
-      files: File[],
-      folderPath: string,
-      options: { userOverride?: string; tags?: string[] } = {}
-    ) => {
+  const uploadFilesToFolder = useCallback(
+    (files: File[], folderPath: string) => {
       if (files.length === 0) return;
-
-      const csrfToken =
-        (session as unknown as { csrfToken?: string } | null)?.csrfToken ?? "";
-
       files.forEach((file) => {
         const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-
         setUploads((prev) => [
           ...prev,
           {
@@ -294,60 +276,75 @@ export function UploadProvider({ children }: { children: ReactNode }) {
             targetFolder: folderPath,
           },
         ]);
-
-        const pending: PendingUpload = {
-          id,
-          file,
-          options: { ...options, sessionCsrfToken: csrfToken },
-        };
-
-        void runUpload(pending, folderPath);
+        void runUpload(id, file, folderPath);
       });
-
       setMinimized(false);
     },
-    [session, runUpload]
+    [runUpload]
   );
 
-  const addFiles = useCallback(
-    (
-      files: File[],
-      options: { userOverride?: string; tags?: string[] } = {}
-    ) => {
+  /**
+   * Called by the hidden file input onChange.
+   * Reads the folder from pendingFolderRef (set synchronously before .click() is called).
+   */
+  const handleFilesFromInput = useCallback(
+    (files: File[]) => {
       if (files.length === 0) return;
-
-      if (selectedFolderForNextUpload !== null) {
-        const folder = selectedFolderForNextUpload;
-        setSelectedFolderForNextUpload(null);
-        addFilesToFolder(files, folder, options);
-        return;
-      }
-
-      const csrfToken =
-        (session as unknown as { csrfToken?: string } | null)?.csrfToken ?? "";
-
-      const pending: PendingUpload[] = files.map((file) => ({
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        file,
-        options: { ...options, sessionCsrfToken: csrfToken },
-      }));
-
-      setUploads((prev) => [
-        ...prev,
-        ...pending.map((p) => ({
-          id: p.id,
-          fileName: p.file.name,
-          totalChunks: 1,
-          uploadedChunks: 0,
-          status: "waiting_folder" as const,
-        })),
-      ]);
-
-      setPendingFiles(pending);
-      setMinimized(false);
+      const folder = pendingFolderRef.current;
+      pendingFolderRef.current = "/";
+      uploadFilesToFolder(files, folder);
     },
-    [selectedFolderForNextUpload, addFilesToFolder, session]
+    [uploadFilesToFolder]
   );
+
+  // ── public API ────────────────────────────────────────────────────────────
+
+  /**
+   * Primary upload trigger — called by NewButton.
+   * Shows folder picker FIRST (if targetFolder not known), then opens file input.
+   */
+  const triggerUpload = useCallback(
+    (options?: { targetFolder?: string }) => {
+      if (options?.targetFolder !== undefined && options.targetFolder !== "") {
+        // Destination known — skip picker, open file input directly
+        pendingFolderRef.current = options.targetFolder;
+        setTimeout(() => fileInputRef.current?.click(), 50);
+      } else {
+        // Show folder picker first; file input opens after user confirms
+        setOpenFileInputAfterPick(true);
+        setPickerOpen(true);
+        setMinimized(false);
+      }
+    },
+    []
+  );
+
+  /**
+   * For drag-and-drop — files already chosen, show folder picker.
+   */
+  const uploadFiles = useCallback((files: File[]) => {
+    if (files.length === 0) return;
+
+    const ids = files.map(
+      () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    );
+
+    setUploads((prev) => [
+      ...prev,
+      ...files.map((f, i) => ({
+        id: ids[i],
+        fileName: f.name,
+        totalChunks: 1,
+        uploadedChunks: 0,
+        status: "waiting_folder" as const,
+      })),
+    ]);
+
+    setPendingFiles(files);
+    setPendingIds(ids);
+    setPickerOpen(true);
+    setMinimized(false);
+  }, []);
 
   const clearCompleted = useCallback(() => {
     setUploads((prev) =>
@@ -362,26 +359,50 @@ export function UploadProvider({ children }: { children: ReactNode }) {
       uploads,
       minimized,
       setMinimized,
-      registerFileInput,
-      promptUpload,
-      addFiles,
-      addFilesToFolder,
+      triggerUpload,
+      uploadFiles,
+      uploadFilesToFolder,
       clearCompleted,
+      registerFileInput,
     }),
-    [uploads, minimized, registerFileInput, promptUpload, addFiles, addFilesToFolder, clearCompleted]
+    [
+      uploads,
+      minimized,
+      triggerUpload,
+      uploadFiles,
+      uploadFilesToFolder,
+      clearCompleted,
+      registerFileInput,
+    ]
   );
 
   return (
     <UploadContext.Provider value={value}>
       {children}
 
-      {/* Folder picker dialog — shown when files are waiting */}
-      {(pendingFiles || pendingFolderForUpload) && index && (
+      {/* Single hidden file input — owned here, not in DropZone */}
+      <input
+        ref={(el) => {
+          fileInputRef.current = el;
+          registerFileInput(el);
+        }}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          const files = Array.from(e.target.files ?? []);
+          e.currentTarget.value = "";
+          handleFilesFromInput(files);
+        }}
+      />
+
+      {/* Folder picker — shown when triggerUpload() or uploadFiles() requests it */}
+      {pickerOpen && index && (
         <FolderPickerDialog
           index={index}
-          fileNames={pendingFiles?.map((p) => p.file.name) ?? []}
-          onConfirm={handleFolderConfirm}
-          onCancel={handleFolderCancel}
+          fileNames={pendingFiles.map((f) => f.name)}
+          onConfirm={handlePickerConfirm}
+          onCancel={handlePickerCancel}
         />
       )}
     </UploadContext.Provider>

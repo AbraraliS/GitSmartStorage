@@ -273,11 +273,11 @@ export async function prepareChunks(
     }
 
     const content = await blobToBase64(processedBlob);
-    const chunkDir = `${basePath}.parts`;
-
+    // Keep date prefix so chunks/{hash} dirs are scoped per month inside the shared repo
+    const datePrefix = basePath.split("/").slice(0, 2).join("/");
     const chunkPath = isSingleChunk
       ? basePath
-      : `${chunkDir}/${String(raw.index).padStart(4, "0")}`;
+      : `${datePrefix}/chunks/${hash}/${String(raw.index).padStart(5, "0")}`;
 
     prepared.push({ index: raw.index, data: content, path: chunkPath, iv: chunkIv });
   }
@@ -334,7 +334,8 @@ export interface UploadPipelineOptions {
   nodeName?: string;
   userOverride?: string;
   sessionCsrfToken?: string;
-  targetFolders?: string[];
+  /** Single target folder path (e.g. "Trips/Japan"), or "/" for root */
+  folder?: string;
   tags?: string[];
   onProgress?: (progress: UploadProgress) => void;
 }
@@ -345,8 +346,8 @@ export interface UploadPipelineResult {
   nodeName: string;
   nodeRepo: string;
   thumbnail: string | null;
-  targetFolders: string[];
-  repo: string;
+  /** Resolved folder path — same value that was passed in or "/" */
+  folder: string;
   chunks: string[];
   skipped: boolean; // true = dedup, no upload performed
   /** Base64-encoded 12-byte AES-GCM IVs (one per chunk), colon-separated */
@@ -364,7 +365,7 @@ export async function runUploadPipeline(
     nodeName,
     userOverride,
     sessionCsrfToken,
-    targetFolders = [],
+    folder = "/",
     onProgress,
   } = options;
 
@@ -396,8 +397,7 @@ export async function runUploadPipeline(
       nodeName: nodeName ?? "other",
       nodeRepo: nodeRepo ?? "gitstore-other",
       thumbnail: null,
-      targetFolders,
-      repo: nodeRepo ?? "gitstore-other",
+      folder,
       chunks: [],
       skipped: true,
     };
@@ -444,9 +444,10 @@ export async function runUploadPipeline(
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const safeName = file.name
+    .replace(/\s+/g, "_")
     .replace(/[^a-zA-Z0-9._-]/g, "_")
     .replace(/__+/g, "_")
-    .replace(/^_|_$/g, "") || "file";
+    .replace(/^_+|_+$/g, "") || "file";
   const basePath = `${year}/${month}/${hash}_${safeName}`;
 
   // Generate a per-file AES-256-GCM key for client-side encryption
@@ -473,8 +474,7 @@ export async function runUploadPipeline(
     nodeName: resolvedNode,
     nodeRepo: resolvedRepo,
     thumbnail,
-    targetFolders,
-    repo: resolvedRepo,
+    folder,
     chunks: chunkPaths,
     skipped: false,
     iv: ivs.length > 0 ? ivs.join(":") : undefined,

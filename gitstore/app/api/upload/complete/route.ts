@@ -36,7 +36,7 @@ const FileRecordSchema = z.object({
   starred:     z.boolean().optional(),
   trashed:     z.boolean().optional(),
   trashedAt:   z.string().optional(),
-  folders:     z.array(z.string()).optional(),
+  folders:     z.array(z.string()).default([]),
   repo:        z.string().optional(),
 });
 

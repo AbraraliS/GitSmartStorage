@@ -11,8 +11,8 @@ import {
   addToFolderAction,
   deleteFolderAction,
   moveFolderAction,
-  moveToTrashAction,
   moveToFolderAction,
+  moveToTrashAction,
   renameFileAction,
   renameFolderAction,
   toggleFolderStarAction,
@@ -20,7 +20,9 @@ import {
 } from "@/app/dashboard/actions";
 import { useIndex } from "@/components/providers/IndexContext";
 import { useUpload } from "@/components/providers/UploadContext";
-import { classifyFile } from "@/lib/nodes";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { RenameDialog } from "@/components/ui/RenameDialog";
+import { MoveDialog } from "@/components/ui/MoveDialog";
 
 interface FolderEntry {
   name: string;
@@ -39,7 +41,7 @@ export function FileGrid({
   isFolderView: boolean;
 }) {
   const { setIndex, index: indexData } = useIndex();
-  const { addFilesToFolder } = useUpload();
+  const { uploadFilesToFolder } = useUpload();
   const pathname = usePathname();
   const params = useSearchParams();
   const router = useRouter();
@@ -48,6 +50,14 @@ export function FileGrid({
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const [menu, setMenu] = useState<{ hash: string; x: number; y: number } | null>(null);
+
+  // ── Modal state ───────────────────────────────────────────────────────────
+  const [renameTarget, setRenameTarget] = useState<FileRecord | null>(null);
+  const [moveTarget, setMoveTarget] = useState<FileRecord | null>(null);
+  const [trashTarget, setTrashTarget] = useState<FileRecord | null>(null);
+  const [renameFolderTarget, setRenameFolderTarget] = useState<FolderEntry | null>(null);
+  const [moveFolderTarget, setMoveFolderTarget] = useState<FolderEntry | null>(null);
+  const [deleteFolderTarget, setDeleteFolderTarget] = useState<FolderEntry | null>(null);
 
   const currentFile = menu ? files.find((f) => f.hash === menu.hash) : null;
   const previewFiles = useMemo(() => files.filter((f) => !f.trashed), [files]);
@@ -85,6 +95,16 @@ export function FileGrid({
     router.push(`${pathname}?${next.toString()}`);
   };
 
+  const safeIndex = indexData ?? {
+    files: {},
+    nodes: {},
+    search_index: {},
+    folders: {},
+    repoShards: {},
+    updated_at: "",
+    version: 2,
+  };
+
   return (
     <>
       <div ref={containerRef} className="space-y-4">
@@ -112,62 +132,19 @@ export function FileGrid({
               key={folder.path}
               name={folder.name}
               path={folder.path}
-              index={
-                indexData ?? {
-                  files: {},
-                  nodes: {},
-                  search_index: {},
-                  folders: {},
-                  repoShards: {},
-                  updated_at: "",
-                  version: 2,
-                }
-              }
+              index={safeIndex}
               starred={!!indexData?.folders?.[folder.path]?.starred}
               onOpen={() => openFolder(folder.path)}
               onToggleStar={async () => {
                 const next = await toggleFolderStarAction(folder.path);
                 await setIndex(next);
               }}
-              onRename={async () => {
-                const newName = window.prompt("Rename folder", folder.name);
-                if (!newName?.trim() || newName.trim() === folder.name) return;
-                const result = await renameFolderAction(folder.path, newName.trim());
-                await setIndex(result.index);
-                if (params.get("path") === folder.path) {
-                  router.replace(`/dashboard?view=folder&path=${encodeURIComponent(result.newPath)}`);
-                }
-              }}
-              onMove={async () => {
-                const defaultParent = folder.path.includes("/")
-                  ? folder.path.split("/").slice(0, -1).join("/")
-                  : "/";
-                const destination = window.prompt(
-                  "Move folder to path (leave empty for root)",
-                  defaultParent || "/"
-                );
-                if (destination === null) return;
-                const result = await moveFolderAction(folder.path, destination.trim() || "/");
-                await setIndex(result.index);
-                if (params.get("path") === folder.path) {
-                  router.replace(`/dashboard?view=folder&path=${encodeURIComponent(result.newPath)}`);
-                }
-              }}
-              onDelete={async () => {
-                const confirmed = window.confirm(
-                  `Delete folder "${folder.name}"?\n\nFiles inside will NOT be deleted — they will move back to the default directory.`
-                );
-                if (!confirmed) return;
-                const next = await deleteFolderAction(folder.path);
-                await setIndex(next);
-                if (params.get("path") === folder.path) {
-                  router.replace("/dashboard");
-                }
-              }}
+              onRename={() => setRenameFolderTarget(folder)}
+              onMove={() => setMoveFolderTarget(folder)}
+              onDelete={() => setDeleteFolderTarget(folder)}
               onDropFiles={(droppedFiles) => {
                 for (const droppedFile of droppedFiles) {
-                  const targetNode = classifyFile(droppedFile.type || "application/octet-stream");
-                  addFilesToFolder([droppedFile], folder.path, { userOverride: targetNode });
+                  uploadFilesToFolder([droppedFile], folder.path);
                 }
               }}
             />
@@ -185,7 +162,9 @@ export function FileGrid({
                 file={file}
                 selected={!!selected[file.hash]}
                 showControls={false}
-                onToggleSelect={() => setSelected((prev) => ({ ...prev, [file.hash]: !prev[file.hash] }))}
+                onToggleSelect={() =>
+                  setSelected((prev) => ({ ...prev, [file.hash]: !prev[file.hash] }))
+                }
                 onOpen={() => setPreviewIndex(idx)}
                 onMenu={(event) => {
                   event.preventDefault();
@@ -197,6 +176,7 @@ export function FileGrid({
         </section>
       </div>
 
+      {/* Context menu */}
       {menu && currentFile && (
         <ContextMenu
           x={menu.x}
@@ -213,7 +193,10 @@ export function FileGrid({
               setMenu(null);
             },
             onDownload: () => {
-              window.open(`/api/files/download?hash=${encodeURIComponent(currentFile.hash)}`, "_blank");
+              window.open(
+                `/api/files/download?hash=${encodeURIComponent(currentFile.hash)}`,
+                "_blank"
+              );
               setMenu(null);
             },
             onToggleStar: async () => {
@@ -221,28 +204,16 @@ export function FileGrid({
               await setIndex(next);
               setMenu(null);
             },
-            onRename: async () => {
-              const name = window.prompt("Rename file", currentFile.name);
-              if (name) {
-                const next = await renameFileAction(currentFile.hash, name);
-                await setIndex(next);
-              }
+            onRename: () => {
+              setRenameTarget(currentFile);
               setMenu(null);
             },
-            onMoveTo: async () => {
-              const targetFolder = window.prompt("Move to folder", currentFolder && currentFolder !== "/" ? currentFolder : "");
-              if (targetFolder?.trim()) {
-                const cleanTarget = targetFolder.trim();
-                const next = currentFolder && isFolderView
-                  ? await moveToFolderAction([currentFile.hash], currentFolder, cleanTarget)
-                  : await addToFolderAction([currentFile.hash], cleanTarget);
-                await setIndex(next);
-              }
+            onMoveTo: () => {
+              setMoveTarget(currentFile);
               setMenu(null);
             },
-            onTrash: async () => {
-              const next = await moveToTrashAction(currentFile.hash);
-              await setIndex(next);
+            onTrash: () => {
+              setTrashTarget(currentFile);
               setMenu(null);
             },
           }}
@@ -262,6 +233,123 @@ export function FileGrid({
           currentIndex={Math.min(previewIndex, previewFiles.length - 1)}
           onClose={() => setPreviewIndex(null)}
           onNavigate={setPreviewIndex}
+        />
+      )}
+
+      {/* ── File modals ─────────────────────────────────────────────────────── */}
+
+      {renameTarget && (
+        <RenameDialog
+          open
+          currentName={renameTarget.name}
+          type="file"
+          onConfirm={async (newName) => {
+            const next = await renameFileAction(renameTarget.hash, newName);
+            await setIndex(next);
+            setRenameTarget(null);
+          }}
+          onCancel={() => setRenameTarget(null)}
+        />
+      )}
+
+      {moveTarget && indexData && (
+        <MoveDialog
+          open
+          itemName={moveTarget.name}
+          itemType="file"
+          currentLocation={moveTarget.folders?.[0] ?? "/"}
+          index={indexData}
+          onConfirm={async (dest) => {
+            const next =
+              currentFolder && isFolderView
+                ? await moveToFolderAction([moveTarget.hash], currentFolder, dest)
+                : await addToFolderAction([moveTarget.hash], dest);
+            await setIndex(next);
+            setMoveTarget(null);
+          }}
+          onCancel={() => setMoveTarget(null)}
+        />
+      )}
+
+      {trashTarget && (
+        <ConfirmDialog
+          open
+          title={`Move "${trashTarget.name}" to trash?`}
+          description="The file will be moved to trash. You can restore it later."
+          confirmLabel="Move to trash"
+          confirmVariant="danger"
+          onConfirm={async () => {
+            const next = await moveToTrashAction(trashTarget.hash);
+            await setIndex(next);
+            setTrashTarget(null);
+          }}
+          onCancel={() => setTrashTarget(null)}
+        />
+      )}
+
+      {/* ── Folder modals ───────────────────────────────────────────────────── */}
+
+      {renameFolderTarget && (
+        <RenameDialog
+          open
+          currentName={renameFolderTarget.name}
+          type="folder"
+          onConfirm={async (newName) => {
+            const result = await renameFolderAction(renameFolderTarget.path, newName);
+            await setIndex(result.index);
+            if (params.get("path") === renameFolderTarget.path) {
+              router.replace(
+                `/dashboard?view=folder&path=${encodeURIComponent(result.newPath)}`
+              );
+            }
+            setRenameFolderTarget(null);
+          }}
+          onCancel={() => setRenameFolderTarget(null)}
+        />
+      )}
+
+      {moveFolderTarget && indexData && (
+        <MoveDialog
+          open
+          itemName={moveFolderTarget.name}
+          itemType="folder"
+          currentLocation={
+            moveFolderTarget.path.includes("/")
+              ? moveFolderTarget.path.split("/").slice(0, -1).join("/")
+              : "/"
+          }
+          disabledPaths={[
+            moveFolderTarget.path,
+            ...Object.keys(indexData.folders ?? {}).filter((p) =>
+              p.startsWith(moveFolderTarget.path + "/")
+            ),
+          ]}
+          index={indexData}
+          onConfirm={async (dest) => {
+            const result = await moveFolderAction(moveFolderTarget.path, dest);
+            await setIndex(result.index);
+            setMoveFolderTarget(null);
+          }}
+          onCancel={() => setMoveFolderTarget(null)}
+        />
+      )}
+
+      {deleteFolderTarget && (
+        <ConfirmDialog
+          open
+          title={`Delete folder "${deleteFolderTarget.name}"?`}
+          description="The folder will be removed. Files inside will NOT be deleted — they will return to the default directory."
+          confirmLabel="Delete folder"
+          confirmVariant="danger"
+          onConfirm={async () => {
+            const next = await deleteFolderAction(deleteFolderTarget.path);
+            await setIndex(next);
+            if (params.get("path") === deleteFolderTarget.path) {
+              router.replace("/dashboard");
+            }
+            setDeleteFolderTarget(null);
+          }}
+          onCancel={() => setDeleteFolderTarget(null)}
         />
       )}
     </>
