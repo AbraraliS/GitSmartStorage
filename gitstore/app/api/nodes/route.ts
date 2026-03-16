@@ -94,11 +94,11 @@ export async function POST(req: NextRequest) {
 
   try {
     const octokit = createOctokit(accessToken);
-    const node    = await createDataNodeRepo(octokit, login, name);
-
-    // Update the index
     const remote = await readRemoteIndex(octokit, login);
     const index  = remote?.content ?? emptyIndex();
+    const node    = await createDataNodeRepo(octokit, login, name, index);
+
+    // Update the index
     addNodeToIndex(index, node);
     await writeRemoteIndex(octokit, login, index, remote?.sha);
 

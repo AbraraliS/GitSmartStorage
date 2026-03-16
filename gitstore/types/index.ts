@@ -11,6 +11,24 @@ export interface DataNode {
   created?: string;
 }
 
+export interface FolderMeta {
+  id: string;
+  name: string;
+  path: string;
+  parent: string;
+  node: string;
+  created: string;
+  coverId?: string;
+}
+
+export interface RepoShard {
+  nodeId: string;
+  repo: string;
+  size_mb: number;
+  created: string;
+  isCurrent: boolean;
+}
+
 export interface FileRecord {
   /** First 6 chars of SHA-256 hash — used as primary key */
   hash: string;
@@ -34,8 +52,10 @@ export interface FileRecord {
   iv?: string;
   /** Base64-encoded raw AES-256-GCM key exported from SubtleCrypto (stored in private index.json) */
   encryptionKey?: string;
-  /** Virtual folder path, e.g. "2024/Holidays". Defaults to "/". */
-  folder?: string;
+  /** Folder paths this file belongs to, e.g. ["Trips/2024/Japan", "Favourites"] */
+  folders?: string[];
+  /** GitHub repo shard that stores this file's blob/chunks. */
+  repo?: string;
   /** Base64 JPEG thumbnail (200x150). Null/undefined for non-visual files. */
   thumbnail?: string;
   /** User-starred file marker. */
@@ -53,8 +73,10 @@ export interface GitStoreIndex {
   files: Record<string, FileRecord>;
   /** keyword → list of hashes */
   search_index: Record<string, string[]>;
-  /** Virtual folder map */
-  folders?: Record<string, { name: string; node: string; parent: string; created: string }>;
+  /** User folder metadata keyed by path */
+  folders?: Record<string, FolderMeta>;
+  /** Repo shard metadata keyed by node id */
+  repoShards?: Record<string, RepoShard[]>;
   /** ISO last-modified timestamp */
   updated_at?: string;
   /** Schema version for future migrations */

@@ -1,7 +1,16 @@
 "use server";
 
 import { auth } from "@/auth";
-import { addFileToIndex, emptyIndex, removeFileFromIndex } from "@/lib/index";
+import {
+  addFileToFolder,
+  addFileToIndex,
+  createFolder,
+  deleteFolder,
+  emptyIndex,
+  renameFolder,
+  removeFileFromFolder,
+  removeFileFromIndex,
+} from "@/lib/index";
 import { createOctokit, readRemoteIndex, writeRemoteIndex } from "@/lib/github";
 import type { GitStoreIndex } from "@/types";
 
@@ -41,23 +50,63 @@ async function persistIndex(
 }
 
 export async function createFolderAction(
-  node: string,
-  parent: string,
-  name: string
+  name: string,
+  parentPath: string,
+  node: string
 ): Promise<GitStoreIndex> {
   const { octokit, login, index, masterSha } = await getContext();
   const cleanName = name.trim();
   if (!cleanName) return index;
+  const fullPath = parentPath === "/" || !parentPath
+    ? cleanName
+    : `${parentPath}/${cleanName}`;
+  createFolder(index, fullPath, node);
 
-  if (!index.folders) index.folders = {};
-  const base = parent === "/" ? "" : `${parent}/`;
-  const id = `${node}:${base}${cleanName}`;
-  index.folders[id] = {
-    name: cleanName,
-    node,
-    parent,
-    created: new Date().toISOString(),
-  };
+  return persistIndex(octokit, login, index, masterSha);
+}
+
+export async function deleteFolderAction(path: string): Promise<GitStoreIndex> {
+  const { octokit, login, index, masterSha } = await getContext();
+  deleteFolder(index, path);
+
+  return persistIndex(octokit, login, index, masterSha);
+}
+
+export async function renameFolderAction(fromPath: string, toPath: string): Promise<GitStoreIndex> {
+  const { octokit, login, index, masterSha } = await getContext();
+  renameFolder(index, fromPath, toPath);
+
+  return persistIndex(octokit, login, index, masterSha);
+}
+
+export async function addToFolderAction(hashes: string[], folderPath: string): Promise<GitStoreIndex> {
+  const { octokit, login, index, masterSha } = await getContext();
+  for (const hash of hashes) {
+    addFileToFolder(index, hash, folderPath);
+  }
+
+  return persistIndex(octokit, login, index, masterSha);
+}
+
+export async function removeFromFolderAction(hashes: string[], folderPath: string): Promise<GitStoreIndex> {
+  const { octokit, login, index, masterSha } = await getContext();
+  for (const hash of hashes) {
+    removeFileFromFolder(index, hash, folderPath);
+  }
+
+  return persistIndex(octokit, login, index, masterSha);
+}
+
+export async function moveToFolderAction(
+  hashes: string[],
+  fromFolder: string,
+  toFolder: string
+): Promise<GitStoreIndex> {
+  const { octokit, login, index, masterSha } = await getContext();
+  for (const hash of hashes) {
+    removeFileFromFolder(index, hash, fromFolder);
+    addFileToFolder(index, hash, toFolder);
+  }
 
   return persistIndex(octokit, login, index, masterSha);
 }
@@ -70,15 +119,6 @@ export async function renameFileAction(hash: string, nextName: string): Promise<
   removeFileFromIndex(index, hash);
   addFileToIndex(index, { ...current, name: nextName.trim() || current.name });
 
-  return persistIndex(octokit, login, index, masterSha);
-}
-
-export async function moveFileAction(hash: string, folder: string): Promise<GitStoreIndex> {
-  const { octokit, login, index, masterSha } = await getContext();
-  const current = index.files[hash];
-  if (!current) throw new Error("File not found");
-
-  index.files[hash] = { ...current, folder: folder || "/" };
   return persistIndex(octokit, login, index, masterSha);
 }
 
@@ -104,6 +144,29 @@ export async function moveToTrashAction(hash: string): Promise<GitStoreIndex> {
   return persistIndex(octokit, login, index, masterSha);
 }
 
+export async function setStarredAction(hashes: string[], starred: boolean): Promise<GitStoreIndex> {
+  const { octokit, login, index, masterSha } = await getContext();
+  for (const hash of hashes) {
+    const current = index.files[hash];
+    if (!current) continue;
+    index.files[hash] = { ...current, starred };
+  }
+
+  return persistIndex(octokit, login, index, masterSha);
+}
+
+export async function moveFilesToTrashAction(hashes: string[]): Promise<GitStoreIndex> {
+  const { octokit, login, index, masterSha } = await getContext();
+  const trashedAt = new Date().toISOString();
+  for (const hash of hashes) {
+    const current = index.files[hash];
+    if (!current) continue;
+    index.files[hash] = { ...current, trashed: true, trashedAt };
+  }
+
+  return persistIndex(octokit, login, index, masterSha);
+}
+
 export async function emptyTrashAction(): Promise<GitStoreIndex> {
   const { octokit, login, index, masterSha } = await getContext();
   for (const record of Object.values(index.files)) {
@@ -114,15 +177,23 @@ export async function emptyTrashAction(): Promise<GitStoreIndex> {
 
 export async function enrichUploadedFileAction(
   hash: string,
-  patch: Pick<
-    NonNullable<GitStoreIndex["files"][string]>,
-    "thumbnail" | "folder" | "starred" | "trashed" | "trashedAt"
-  >
+  patch: {
+    thumbnail?: string;
+    folders?: string[];
+    starred?: boolean;
+    trashed?: boolean;
+    trashedAt?: string;
+    repo?: string;
+  }
 ): Promise<GitStoreIndex> {
   const { octokit, login, index, masterSha } = await getContext();
   const current = index.files[hash];
   if (!current) return index;
 
-  index.files[hash] = { ...current, ...patch };
+  index.files[hash] = {
+    ...current,
+    ...patch,
+    folders: patch.folders ?? current.folders ?? [],
+  };
   return persistIndex(octokit, login, index, masterSha);
 }

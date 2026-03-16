@@ -151,12 +151,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ records: [record] }),
         });
-        if (!completeRes.ok) {
-          const payload = await completeRes
-            .json()
-            .catch(() => ({ error: "Upload commit failed" }));
-          throw new Error(payload.error ?? "Upload commit failed");
-        }
+        if (!completeRes.ok) throw new Error("Upload commit failed");
 
         // Enrich with thumbnail + folder info
         await enrichUploadedFileAction(result.hash, {

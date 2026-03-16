@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { FolderOpenIcon, SearchIcon, Trash2Icon } from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import { FolderOpenIcon, FolderPlusIcon, SearchIcon, Trash2Icon, UploadCloudIcon } from "lucide-react";
 import { useIndex } from "@/components/providers/IndexContext";
 import {
   getFilesInFolder,
+  getSmartFolderFiles,
   getStarredFiles,
-  getSubFolders,
+  getSubFoldersOf,
   getTrashedFiles,
   searchFiles,
 } from "@/lib/index";
@@ -19,19 +20,32 @@ import { DropZone } from "@/components/upload/DropZone";
 interface FolderEntry {
   name: string;
   path: string;
+  count: number;
+  totalSize: number;
+  coverSrc?: string;
+}
+
+function getFolderStats(index: NonNullable<ReturnType<typeof useIndex>["index"]>, path: string) {
+  const files = getFilesInFolder(index, path);
+  return {
+    count: files.length,
+    totalSize: files.reduce((sum, file) => sum + file.size, 0),
+    coverSrc: files.find((file) => file.thumbnail)?.thumbnail,
+  };
 }
 
 export default function DashboardPage() {
   const { index, loading, error, setIndex } = useIndex();
   const params = useSearchParams();
-  const router = useRouter();
 
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
 
   const view = params.get("view") ?? "";
   const node = params.get("node") ?? "";
-  const folder = params.get("folder") ?? "/";
+  const path = params.get("path") ?? "";
+  const smartType = params.get("type") ?? "";
+  const smartValue = params.get("value") ?? "";
   const q = params.get("q") ?? "";
   const mode = params.get("mode") ?? "grid";
 
@@ -43,6 +57,18 @@ export default function DashboardPage() {
 
   const computed = useMemo(() => {
     if (!index) return { files: [], folders: [] as FolderEntry[] };
+
+    const toFolderEntry = (folderPath: string): FolderEntry => {
+      const folder = index.folders?.[folderPath];
+      const stats = getFolderStats(index, folderPath);
+      return {
+        name: folder?.name ?? folderPath.split("/").pop() ?? folderPath,
+        path: folderPath,
+        count: stats.count,
+        totalSize: stats.totalSize,
+        coverSrc: stats.coverSrc,
+      };
+    };
 
     if (q.trim()) {
       return {
@@ -69,20 +95,41 @@ export default function DashboardPage() {
       return { files: getTrashedFiles(index), folders: [] as FolderEntry[] };
     }
 
-    if (node) {
-      const subFolders = getSubFolders(index, node, folder).map((name) => ({
-        name,
-        path: folder === "/" ? name : `${folder}/${name}`,
-      }));
+    if (view === "smart") {
+      if (smartType === "starred") {
+        return { files: getSmartFolderFiles(index, "starred"), folders: [] as FolderEntry[] };
+      }
 
+      if (smartType === "month" || smartType === "tag" || smartType === "node") {
+        return {
+          files: getSmartFolderFiles(index, smartType, smartValue),
+          folders: [] as FolderEntry[],
+        };
+      }
+    }
+
+    if (view === "folder") {
+      const folderPath = path || "/";
       return {
-        folders: subFolders,
-        files: getFilesInFolder(index, node, folder),
+        files: getFilesInFolder(index, folderPath),
+        folders: getSubFoldersOf(index, folderPath).map((folder) => toFolderEntry(folder.path)),
       };
     }
 
-    return { files: [], folders: [] as FolderEntry[] };
-  }, [index, node, folder, q, view]);
+    if (node) {
+      return {
+        files: Object.values(index.files).filter(
+          (file) => !file.trashed && file.node === node && (!file.folders || file.folders.length === 0)
+        ),
+        folders: getSubFoldersOf(index, "/").map((folder) => toFolderEntry(folder.path)),
+      };
+    }
+
+    return {
+      files: [],
+      folders: getSubFoldersOf(index, "/").map((folder) => toFolderEntry(folder.path)),
+    };
+  }, [index, node, path, q, smartType, smartValue, view]);
 
   if (loading) {
     return (
@@ -100,30 +147,39 @@ export default function DashboardPage() {
     return <p className="rounded-lg bg-red-50 p-4 text-sm text-red-600 dark:bg-red-950/20">{error ?? "Failed to load index"}</p>;
   }
 
-  if (!node && !view && !q) {
-    const allNodes = Object.values(index.nodes);
-    return (
-      <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
-        {allNodes.map((n) => (
-          <button
-            key={n.id}
-            type="button"
-            onClick={() => router.push(`/dashboard?node=${n.id}`)}
-            className="rounded-xl border border-gray-200 p-4 text-left hover:ring-2 hover:ring-blue-500 dark:border-gray-800"
-          >
-            <FolderOpenIcon className="mb-4 h-10 w-10 text-amber-500" />
-            <p className="truncate text-sm font-medium">{n.id}</p>
-            <p className="text-xs text-gray-500">{n.repo}</p>
-          </button>
-        ))}
-      </section>
-    );
-  }
-
   const isEmpty = computed.files.length === 0 && computed.folders.length === 0;
+  const activeFolderNode = path ? index.folders?.[path]?.node : undefined;
+  const currentFolderPath = path || "/";
+  const currentFolderName = currentFolderPath === "/"
+    ? "Root"
+    : currentFolderPath.split("/").filter(Boolean).at(-1) ?? "Root";
 
   return (
     <section className="space-y-4">
+      {view === "folder" && (
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{currentFolderName}</h2>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => window.dispatchEvent(new CustomEvent("gitstore:new-upload", { detail: { folder: currentFolderPath } }))}
+              className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500"
+            >
+              <UploadCloudIcon className="h-4 w-4" />
+              Upload here
+            </button>
+            <button
+              type="button"
+              onClick={() => setCreatingFolder(true)}
+              className="flex items-center gap-2 rounded-lg border border-gray-700 px-4 py-2 text-sm text-gray-300 hover:bg-gray-800"
+            >
+              <FolderPlusIcon className="h-4 w-4" />
+              New folder
+            </button>
+          </div>
+        </div>
+      )}
+
       {view === "trash" && (
         <div className="flex justify-end">
           <button
@@ -149,22 +205,42 @@ export default function DashboardPage() {
           ) : q ? (
             <>
               <SearchIcon size={64} className="text-gray-300" />
-              <p className="mt-3 text-gray-500">No files match "{q}"</p>
+              <p className="mt-3 text-gray-500">No files match &quot;{q}&quot;</p>
             </>
+          ) : view === "folder" ? (
+            <div className="flex min-h-[45vh] flex-col items-center justify-center gap-4 text-center">
+              <FolderOpenIcon size={64} className="text-gray-600" />
+              <p className="text-lg text-gray-400">This folder is empty</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Drop files here or click Upload to add files to{" "}
+                <span className="font-medium text-gray-400">{currentFolderName}</span>
+              </p>
+              <button
+                type="button"
+                onClick={() => window.dispatchEvent(new CustomEvent("gitstore:new-upload", { detail: { folder: currentFolderPath } }))}
+                className="mt-2 flex items-center gap-2 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-500"
+              >
+                <UploadCloudIcon className="h-4 w-4" />
+                Upload to this folder
+              </button>
+              <div className="w-full max-w-md">
+                <DropZone showEmptyPrompt />
+              </div>
+            </div>
           ) : (
             <>
               <FolderOpenIcon size={64} className="text-gray-300" />
               <p className="mt-3 text-gray-500">This folder is empty</p>
               <div className="mt-4 w-full max-w-md">
-                <DropZone showEmptyPrompt currentFolder={folder} />
+                <DropZone showEmptyPrompt />
               </div>
             </>
           )}
         </div>
       ) : mode === "list" ? (
-        <FileList files={computed.files} />
+        <FileList files={computed.files} currentFolder={path || undefined} isFolderView={view === "folder" && Boolean(path)} />
       ) : (
-        <FileGrid files={computed.files} folders={computed.folders} node={node} currentFolder={folder} />
+        <FileGrid files={computed.files} folders={computed.folders} currentFolder={path || undefined} isFolderView={view === "folder" && Boolean(path)} />
       )}
 
       {creatingFolder && (
@@ -185,8 +261,12 @@ export default function DashboardPage() {
             type="button"
             className="rounded bg-blue-600 px-2 py-1 text-sm text-white"
             onClick={async () => {
-              if (!node || !newFolderName.trim()) return;
-              const next = await createFolderAction(node, folder, newFolderName.trim());
+              if (!newFolderName.trim()) return;
+              const next = await createFolderAction(
+                newFolderName.trim(),
+                currentFolderPath,
+                activeFolderNode ?? node ?? "documents"
+              );
               await setIndex(next);
               setCreatingFolder(false);
               setNewFolderName("");

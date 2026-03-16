@@ -128,7 +128,7 @@ export function DropZone({
               </p>
             ) : (
               <p className="mt-1 text-sm text-gray-500">
-                You&apos;ll choose the folder next
+                You'll choose the folder next
               </p>
             )}
           </div>

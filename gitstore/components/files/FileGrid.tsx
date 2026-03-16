@@ -1,39 +1,49 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { FileRecord } from "@/types";
+import { formatBytes } from "@/lib/format";
 import { FileCard, FolderCard } from "@/components/files/FileCard";
+import { BulkActionBar } from "@/components/files/BulkActionBar";
 import { ContextMenu } from "@/components/files/ContextMenu";
 import { PreviewModal } from "@/components/preview/PreviewModal";
 import {
-  moveFileAction,
+  addToFolderAction,
   moveToTrashAction,
+  moveToFolderAction,
   renameFileAction,
   toggleStarAction,
 } from "@/app/dashboard/actions";
 import { useIndex } from "@/components/providers/IndexContext";
+import { useUpload } from "@/components/providers/UploadContext";
+import { classifyFile } from "@/lib/nodes";
 
 interface FolderEntry {
   name: string;
   path: string;
+  count: number;
+  totalSize: number;
+  coverSrc?: string;
 }
 
 export function FileGrid({
   files,
   folders,
-  node,
   currentFolder,
+  isFolderView,
 }: {
   files: FileRecord[];
   folders: FolderEntry[];
-  node: string;
-  currentFolder: string;
+  currentFolder?: string;
+  isFolderView: boolean;
 }) {
   const { setIndex } = useIndex();
+  const { addFilesToFolder } = useUpload();
   const pathname = usePathname();
   const params = useSearchParams();
   const router = useRouter();
+  const containerRef = useRef<HTMLDivElement | null>(null);
 
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
@@ -41,43 +51,102 @@ export function FileGrid({
 
   const currentFile = menu ? files.find((f) => f.hash === menu.hash) : null;
   const previewFiles = useMemo(() => files.filter((f) => !f.trashed), [files]);
+  const selectedFiles = useMemo(
+    () => files.filter((file) => selected[file.hash]),
+    [files, selected]
+  );
+  const allSelected = files.length > 0 && selectedFiles.length === files.length;
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSelected({});
+    };
+    const onPointerDown = (event: MouseEvent) => {
+      if (!containerRef.current) return;
+      if (!containerRef.current.contains(event.target as Node)) {
+        setSelected({});
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("mousedown", onPointerDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("mousedown", onPointerDown);
+    };
+  }, []);
 
   const openFolder = (folderPath: string) => {
     const next = new URLSearchParams(params.toString());
-    next.set("node", node);
-    next.set("folder", folderPath);
+    next.delete("node");
+    next.delete("folder");
+    next.set("view", "folder");
+    next.set("path", folderPath);
     router.push(`${pathname}?${next.toString()}`);
   };
 
   return (
     <>
-      <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
-        {folders.map((folder) => (
-          <FolderCard key={folder.path} name={folder.name} onOpen={() => openFolder(folder.path)} />
-        ))}
+      <div ref={containerRef} className="space-y-4">
+        {files.length > 0 && (
+          <label className="inline-flex items-center gap-2 rounded-xl border border-gray-200 px-3 py-2 text-sm text-gray-700 dark:border-gray-800 dark:text-gray-200">
+            <input
+              type="checkbox"
+              checked={allSelected}
+              onChange={() => {
+                if (allSelected) {
+                  setSelected({});
+                  return;
+                }
+                setSelected(Object.fromEntries(files.map((file) => [file.hash, true])));
+              }}
+              className="h-4 w-4 rounded border-gray-300"
+            />
+            Select all
+          </label>
+        )}
 
-        {files.map((file, idx) => (
-          <div
-            key={file.hash}
-            onContextMenu={(event) => {
-              event.preventDefault();
-              setMenu({ hash: file.hash, x: event.clientX, y: event.clientY });
-            }}
-          >
-            <FileCard
-              file={file}
-              selected={!!selected[file.hash]}
-              showControls={false}
-              onToggleSelect={() => setSelected((prev) => ({ ...prev, [file.hash]: !prev[file.hash] }))}
-              onOpen={() => setPreviewIndex(idx)}
-              onMenu={(event) => {
+        <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+          {folders.map((folder) => (
+            <FolderCard
+              key={folder.path}
+              name={folder.name}
+              count={folder.count}
+              sizeLabel={formatBytes(folder.totalSize)}
+              coverSrc={folder.coverSrc}
+              onOpen={() => openFolder(folder.path)}
+              onDropFiles={(droppedFiles) => {
+                for (const droppedFile of droppedFiles) {
+                  const targetNode = classifyFile(droppedFile.type || "application/octet-stream");
+                  addFilesToFolder([droppedFile], folder.path, { userOverride: targetNode });
+                }
+              }}
+            />
+          ))}
+
+          {files.map((file, idx) => (
+            <div
+              key={file.hash}
+              onContextMenu={(event) => {
                 event.preventDefault();
                 setMenu({ hash: file.hash, x: event.clientX, y: event.clientY });
               }}
-            />
-          </div>
-        ))}
-      </section>
+            >
+              <FileCard
+                file={file}
+                selected={!!selected[file.hash]}
+                showControls={false}
+                onToggleSelect={() => setSelected((prev) => ({ ...prev, [file.hash]: !prev[file.hash] }))}
+                onOpen={() => setPreviewIndex(idx)}
+                onMenu={(event) => {
+                  event.preventDefault();
+                  setMenu({ hash: file.hash, x: event.clientX, y: event.clientY });
+                }}
+              />
+            </div>
+          ))}
+        </section>
+      </div>
 
       {menu && currentFile && (
         <ContextMenu
@@ -112,10 +181,12 @@ export function FileGrid({
               setMenu(null);
             },
             onMoveTo: async () => {
-              const to = window.prompt("Move to folder", currentFolder === "/" ? "" : currentFolder);
-              if (to !== null) {
-                const clean = to.trim() ? to.trim() : "/";
-                const next = await moveFileAction(currentFile.hash, clean);
+              const targetFolder = window.prompt("Move to folder", currentFolder && currentFolder !== "/" ? currentFolder : "");
+              if (targetFolder?.trim()) {
+                const cleanTarget = targetFolder.trim();
+                const next = currentFolder && isFolderView
+                  ? await moveToFolderAction([currentFile.hash], currentFolder, cleanTarget)
+                  : await addToFolderAction([currentFile.hash], cleanTarget);
                 await setIndex(next);
               }
               setMenu(null);
@@ -128,6 +199,13 @@ export function FileGrid({
           }}
         />
       )}
+
+      <BulkActionBar
+        selectedFiles={selectedFiles}
+        currentFolder={currentFolder}
+        isFolderView={isFolderView}
+        onClear={() => setSelected({})}
+      />
 
       {previewIndex !== null && previewFiles.length > 0 && (
         <PreviewModal

@@ -6,12 +6,14 @@
 
 import { Octokit } from "@octokit/rest";
 import type { DataNode, GitStoreIndex } from "@/types";
+import { normalizeIndex } from "@/lib/index";
 
 // ─── Repo name constants ──────────────────────────────────────────────────
 
 export const MASTER_REPO = "gitstore-master";
 export const SECONDARY_REPO = "gitstore-secondary";
 export const INDEX_FILE_PATH = "index.json";
+export const SHARD_SIZE_LIMIT_MB = 800;
 
 const CHUNK_SIZE_BYTES = 4 * 1024 * 1024; // 4 MB
 
@@ -113,7 +115,7 @@ export async function readRemoteIndex(
     if (Array.isArray(data) || data.type !== "file") return null;
 
     const raw = Buffer.from(data.content, "base64").toString("utf-8");
-    return { content: JSON.parse(raw) as GitStoreIndex, sha: data.sha };
+    return { content: normalizeIndex(JSON.parse(raw) as GitStoreIndex), sha: data.sha };
   } catch (err: unknown) {
     if ((err as { status?: number }).status === 404) return null;
     throw err;
@@ -271,11 +273,79 @@ export async function uploadChunksBatched(
 export async function createDataNodeRepo(
   octokit: Octokit,
   owner: string,
-  nodeName: string
+  nodeName: string,
+  index?: GitStoreIndex
 ): Promise<DataNode> {
   const repo = `gitstore-${nodeName.toLowerCase().replace(/\s+/g, "-")}`;
   await ensureRepo(octokit, owner, repo);
+  if (index) {
+    if (!index.repoShards) index.repoShards = {};
+    if (!index.repoShards[nodeName] || index.repoShards[nodeName].length === 0) {
+      index.repoShards[nodeName] = [
+        {
+          nodeId: nodeName,
+          repo,
+          size_mb: 0,
+          created: new Date().toISOString(),
+          isCurrent: true,
+        },
+      ];
+    }
+  }
   return { id: nodeName, repo, size_mb: 0, created: new Date().toISOString() };
+}
+
+export async function getOrCreateCurrentShard(
+  octokit: Octokit,
+  owner: string,
+  index: GitStoreIndex,
+  nodeId: string
+): Promise<string> {
+  if (!index.repoShards) index.repoShards = {};
+  const node = index.nodes[nodeId];
+  if (!node) {
+    throw new Error(`Node \"${nodeId}\" not found`);
+  }
+
+  const shards = index.repoShards[nodeId] ?? [];
+  if (shards.length === 0) {
+    index.repoShards[nodeId] = [
+      {
+        nodeId,
+        repo: node.repo,
+        size_mb: node.size_mb,
+        created: node.created ?? new Date().toISOString(),
+        isCurrent: true,
+      },
+    ];
+    return node.repo;
+  }
+
+  let currentShard = shards.find((entry) => entry.isCurrent);
+  if (!currentShard) {
+    currentShard = shards[shards.length - 1];
+    currentShard.isCurrent = true;
+  }
+
+  if (currentShard.size_mb < SHARD_SIZE_LIMIT_MB) {
+    return currentShard.repo;
+  }
+
+  currentShard.isCurrent = false;
+  const nextRepo = `gitstore-${nodeId}-${shards.length + 1}`;
+  await ensureRepo(octokit, owner, nextRepo);
+
+  const nextShard = {
+    nodeId,
+    repo: nextRepo,
+    size_mb: 0,
+    created: new Date().toISOString(),
+    isCurrent: true,
+  };
+  shards.push(nextShard);
+  index.repoShards[nodeId] = shards;
+
+  return nextRepo;
 }
 
 // ─── Backup replication ───────────────────────────────────────────────────

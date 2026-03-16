@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { BellIcon, Grid3X3Icon, ListIcon, MenuIcon, PlusIcon } from "lucide-react";
+import { BellIcon, Grid3X3Icon, ListIcon, MenuIcon, PlusIcon, UploadCloudIcon } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
 import { SearchBar } from "@/components/files/SearchBar";
@@ -16,6 +16,7 @@ export function Topbar() {
   const [open, setOpen] = useState(false);
 
   const mode = params.get("mode") ?? "grid";
+  const view = params.get("view") ?? "";
 
   const setMode = (nextMode: "grid" | "list") => {
     const next = new URLSearchParams(params.toString());
@@ -35,6 +36,12 @@ export function Topbar() {
         </button>
         <div className="min-w-0">
           <Breadcrumb />
+          {view === "folder" && (
+            <span className="ml-0.5 mt-0.5 flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
+              <UploadCloudIcon className="h-3 w-3" />
+              uploads go here
+            </span>
+          )}
         </div>
       </div>
 

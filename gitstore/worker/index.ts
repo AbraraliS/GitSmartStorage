@@ -10,10 +10,7 @@
  *   wrangler deploy
  */
 
-export interface Env {
-  // Optional: Cloudflare KV namespace for extended caching
-  // CACHE_KV: KVNamespace;
-}
+export type Env = Record<string, never>;
 
 const CACHE_TTL = 86400; // 24 hours in seconds
 const ALLOWED_ORIGIN = "raw.githubusercontent.com";

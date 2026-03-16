@@ -13,6 +13,7 @@ import {
   emptyIndex,
   addFileToIndex,
   incrementNodeSize,
+  incrementShardSize,
 } from "@/lib/index";
 import { checkRateLimit } from "@/lib/ratelimit";
 
@@ -30,6 +31,13 @@ const FileRecordSchema = z.object({
   lfs:         z.boolean().optional(),
   sha:         z.string().optional(),
   iv:          z.string().optional(),
+  encryptionKey: z.string().optional(),
+  thumbnail:   z.string().optional(),
+  starred:     z.boolean().optional(),
+  trashed:     z.boolean().optional(),
+  trashedAt:   z.string().optional(),
+  folders:     z.array(z.string()).optional(),
+  repo:        z.string().optional(),
 });
 
 const CompleteSchema = z.object({
@@ -72,21 +80,45 @@ export async function POST(req: NextRequest) {
   try {
     const octokit = createOctokit(accessToken);
 
-    // Read current index (or start fresh)
-    const remote = await readRemoteIndex(octokit, login);
-    const index = remote?.content ?? emptyIndex();
-    const masterSha = remote?.sha;
+    const maxAttempts = 3;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        // Re-read on every attempt so we merge against the latest index state.
+        const remote = await readRemoteIndex(octokit, login);
+        const index = remote?.content ?? emptyIndex();
+        const masterSha = remote?.sha;
 
-    // Batch-add all uploaded file records
-    for (const record of records) {
-      addFileToIndex(index, { ...record, sync_status: "synced" });
-      incrementNodeSize(index, record.node, record.size);
+        // Batch-add all uploaded file records.
+        // Only bump size counters when the hash does not already exist.
+        for (const record of records) {
+          const existing = index.files[record.hash];
+          addFileToIndex(index, { ...record, sync_status: "synced" });
+
+          if (!existing) {
+            incrementNodeSize(index, record.node, record.size);
+            incrementShardSize(
+              index,
+              record.node,
+              record.repo ?? index.nodes[record.node]?.repo ?? `gitstore-${record.node}`,
+              record.size
+            );
+          }
+        }
+
+        // Write index ONCE (never per-file)
+        await writeRemoteIndex(octokit, login, index, masterSha);
+        return NextResponse.json({ ok: true, count: records.length });
+      } catch (err: unknown) {
+        const status = (err as { status?: number })?.status;
+        const isWriteConflict = status === 409 || status === 422;
+        if (isWriteConflict && attempt < maxAttempts) {
+          continue;
+        }
+        throw err;
+      }
     }
 
-    // Write index ONCE (never per-file)
-    await writeRemoteIndex(octokit, login, index, masterSha);
-
-    return NextResponse.json({ ok: true, count: records.length });
+    return NextResponse.json({ error: "Index write conflict" }, { status: 500 });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Index write failed";
     return NextResponse.json({ error: message }, { status: 500 });

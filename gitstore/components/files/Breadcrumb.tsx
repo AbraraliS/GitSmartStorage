@@ -2,6 +2,16 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import { NODE_DEFINITIONS } from "@/lib/nodes";
+
+function formatMonth(value: string): string {
+  const [year, month] = value.split("-");
+  if (!year || !month) return value;
+  return new Intl.DateTimeFormat("en-US", {
+    month: "long",
+    year: "numeric",
+  }).format(new Date(Number(year), Number(month) - 1, 1));
+}
 
 function toTitle(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
@@ -10,26 +20,46 @@ function toTitle(value: string): string {
 export function Breadcrumb() {
   const params = useSearchParams();
   const node = params.get("node");
-  const folder = params.get("folder") ?? "/";
+  const view = params.get("view") ?? "";
+  const path = params.get("path") ?? "";
+  const smartType = params.get("type") ?? "";
+  const smartValue = params.get("value") ?? "";
 
   const segments: Array<{ label: string; href?: string }> = [{ label: "My Files", href: "/dashboard" }];
 
   if (node) {
-    const nodeHref = `/dashboard?node=${node}`;
-    segments.push({ label: toTitle(node), href: nodeHref });
-
-    if (folder !== "/") {
-      const parts = folder.split("/").filter(Boolean);
-      let path = "";
-      parts.forEach((part, idx) => {
-        path = path ? `${path}/${part}` : part;
-        const isLast = idx === parts.length - 1;
-        segments.push({
-          label: part,
-          href: isLast ? undefined : `/dashboard?node=${node}&folder=${encodeURIComponent(path)}`,
-        });
+    const nodeLabel = NODE_DEFINITIONS[node as keyof typeof NODE_DEFINITIONS]?.label ?? toTitle(node);
+    segments.push({ label: "Default", href: "/dashboard?view=folder" });
+    segments.push({ label: nodeLabel });
+  } else if (view === "folder" && path) {
+    const parts = path.split("/").filter(Boolean);
+    let currentPath = "";
+    parts.forEach((part, idx) => {
+      currentPath = currentPath ? `${currentPath}/${part}` : part;
+      const isLast = idx === parts.length - 1;
+      segments.push({
+        label: part,
+        href: isLast ? undefined : `/dashboard?view=folder&path=${encodeURIComponent(currentPath)}`,
       });
+    });
+  } else if (view === "smart") {
+    segments.push({ label: "Smart", href: "/dashboard?view=folder" });
+    if (smartType === "month") {
+      segments.push({ label: formatMonth(smartValue) });
+    } else if (smartType === "tag") {
+      segments.push({ label: `#${smartValue}` });
+    } else if (smartType === "node") {
+      const nodeLabel = NODE_DEFINITIONS[smartValue as keyof typeof NODE_DEFINITIONS]?.label ?? toTitle(smartValue);
+      segments.push({ label: nodeLabel });
+    } else if (smartType === "starred") {
+      segments.push({ label: "Starred" });
     }
+  } else if (view === "recent") {
+    segments.push({ label: "Recent" });
+  } else if (view === "trash") {
+    segments.push({ label: "Trash" });
+  } else if (view === "starred") {
+    segments.push({ label: "Starred" });
   }
 
   const mobileSegments = segments.length > 3

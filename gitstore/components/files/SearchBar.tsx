@@ -48,7 +48,7 @@ export function SearchBar() {
       {open && q.trim() && (
         <div className="absolute z-40 mt-2 w-full rounded-xl border border-gray-200 bg-white p-2 shadow-lg dark:border-gray-800 dark:bg-gray-900">
           {results.length === 0 ? (
-            <p className="px-3 py-2 text-sm text-gray-500">No files match "{q}"</p>
+            <p className="px-3 py-2 text-sm text-gray-500">No files match &quot;{q}&quot;</p>
           ) : (
             results.map((file) => (
               <button
@@ -57,9 +57,17 @@ export function SearchBar() {
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => {
                   const next = new URLSearchParams(params.toString());
-                  next.set("q", q);
-                  next.set("node", file.node);
-                  if (file.folder && file.folder !== "/") next.set("folder", file.folder);
+                  next.delete("q");
+                  const firstFolder = file.folders?.[0];
+                  if (firstFolder) {
+                    next.delete("node");
+                    next.set("view", "folder");
+                    next.set("path", firstFolder);
+                  } else {
+                    next.delete("view");
+                    next.delete("path");
+                    next.set("node", file.node);
+                  }
                   router.push(`${pathname}?${next.toString()}`);
                 }}
                 className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800"

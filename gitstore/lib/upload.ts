@@ -328,7 +328,7 @@ export interface UploadPipelineOptions {
   nodeName?: string;
   userOverride?: string;
   sessionCsrfToken?: string;
-  folder?: string;
+  targetFolders?: string[];
   tags?: string[];
   onProgress?: (progress: UploadProgress) => void;
 }
@@ -339,7 +339,8 @@ export interface UploadPipelineResult {
   nodeName: string;
   nodeRepo: string;
   thumbnail: string | null;
-  folder: string;
+  targetFolders: string[];
+  repo: string;
   chunks: string[];
   skipped: boolean; // true = dedup, no upload performed
   /** Base64-encoded 12-byte AES-GCM IVs (one per chunk), colon-separated */
@@ -357,8 +358,7 @@ export async function runUploadPipeline(
     nodeName,
     userOverride,
     sessionCsrfToken,
-    folder,
-    tags = [],
+    targetFolders = [],
     onProgress,
   } = options;
 
@@ -390,7 +390,8 @@ export async function runUploadPipeline(
       nodeName: nodeName ?? "other",
       nodeRepo: nodeRepo ?? "gitstore-other",
       thumbnail: null,
-      folder: folder ?? "/",
+      targetFolders,
+      repo: nodeRepo ?? "gitstore-other",
       chunks: [],
       skipped: true,
     };
@@ -411,8 +412,24 @@ export async function runUploadPipeline(
     });
   }
 
-  const resolvedRepo = nodeRepo ?? index?.nodes[targetNode]?.repo ?? `gitstore-${targetNode}`;
   const resolvedNode = nodeName ?? targetNode;
+
+  const targetResponse = await fetch("/api/upload/target", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(sessionCsrfToken ? { "x-csrf-token": sessionCsrfToken } : {}),
+    },
+    body: JSON.stringify({ nodeId: resolvedNode }),
+  });
+
+  if (!targetResponse.ok) {
+    const error = await targetResponse.json().catch(() => ({ error: "Failed to resolve upload target" }));
+    throw new Error(error.error ?? "Failed to resolve upload target");
+  }
+
+  const targetPayload = (await targetResponse.json()) as { repo: string };
+  const resolvedRepo = targetPayload.repo ?? nodeRepo ?? index?.nodes[targetNode]?.repo ?? `gitstore-${targetNode}`;
 
   const thumbnail = await generateThumbnail(file);
 
@@ -446,7 +463,8 @@ export async function runUploadPipeline(
     nodeName: resolvedNode,
     nodeRepo: resolvedRepo,
     thumbnail,
-    folder: folder ?? "/",
+    targetFolders,
+    repo: resolvedRepo,
     chunks: chunkPaths,
     skipped: false,
     iv: ivs.length > 0 ? ivs.join(":") : undefined,

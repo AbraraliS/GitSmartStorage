@@ -132,6 +132,7 @@ export async function DELETE(req: NextRequest) {
 
     const nodeInfo = remote.content.nodes[record.node];
     if (!nodeInfo) return NextResponse.json({ error: "Node not found" }, { status: 404 });
+    const targetRepo = record.repo ?? nodeInfo.repo;
 
     // Delete actual file(s) from data node repo
     const pathsToDelete = record.chunks?.length ? record.chunks : [record.path];
@@ -139,11 +140,11 @@ export async function DELETE(req: NextRequest) {
       try {
         const { data } = await octokit.repos.getContent({
           owner: login,
-          repo:  nodeInfo.repo,
+          repo:  targetRepo,
           path,
         });
         if (!Array.isArray(data) && data.type === "file") {
-          await deleteFile(octokit, login, nodeInfo.repo, path, data.sha);
+          await deleteFile(octokit, login, targetRepo, path, data.sha);
         }
       } catch {
         // Best-effort deletion — continue even if individual chunk missing

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import {
   autoUpdate,
   flip,
@@ -57,6 +57,13 @@ export function ContextMenu({
     useDismiss(context),
   ]);
 
+  const setFloatingRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      refs.setFloating(node);
+    },
+    [refs]
+  );
+
   const menuStyle = useMemo(
     () => ({ ...floatingStyles, left: x, top: y }),
     [floatingStyles, x, y]
@@ -69,7 +76,7 @@ export function ContextMenu({
 
   return (
     <div
-      ref={refs.setFloating}
+      ref={setFloatingRef}
       style={menuStyle}
       className="z-[120] min-w-48 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-900"
       {...getFloatingProps()}

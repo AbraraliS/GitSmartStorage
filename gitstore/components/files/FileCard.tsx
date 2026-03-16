@@ -1,7 +1,7 @@
 "use client";
 
 import { FileIcon, FolderIcon, MoreVerticalIcon } from "lucide-react";
-import { formatBytes } from "@/lib/format";
+import { formatBytes, formatDate } from "@/lib/format";
 import type { FileRecord } from "@/types";
 
 export function FileCard({
@@ -19,8 +19,6 @@ export function FileCard({
   onOpen: () => void;
   onMenu: (event: React.MouseEvent<HTMLButtonElement>) => void;
 }) {
-  const ageLabel = `${Math.max(0, Math.floor((Date.now() - new Date(file.created).getTime()) / 86400000))}d ago`;
-
   return (
     <article
       className={`group rounded-xl border p-2 transition ${
@@ -53,28 +51,54 @@ export function FileCard({
       </div>
 
       <p className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">{file.name}</p>
-      <p className="text-xs text-gray-500 dark:text-gray-400">{formatBytes(file.size)} · {ageLabel}</p>
+      <p className="text-xs text-gray-500 dark:text-gray-400">{formatBytes(file.size)} · {formatDate(file.created)}</p>
     </article>
   );
 }
 
 export function FolderCard({
   name,
+  count,
+  sizeLabel,
+  coverSrc,
   onOpen,
+  onDropFiles,
 }: {
   name: string;
+  count: number;
+  sizeLabel: string;
+  coverSrc?: string;
   onOpen: () => void;
+  onDropFiles?: (files: File[]) => void;
 }) {
   return (
     <button
       type="button"
       onClick={onOpen}
+      onDragOver={(event) => {
+        if (!onDropFiles) return;
+        event.preventDefault();
+      }}
+      onDrop={(event) => {
+        if (!onDropFiles) return;
+        event.preventDefault();
+        onDropFiles(Array.from(event.dataTransfer?.files ?? []));
+      }}
       className="group rounded-xl border border-gray-200 p-3 text-left transition hover:ring-2 hover:ring-blue-500 dark:border-gray-800"
     >
       <div className="mb-3 flex h-24 items-center justify-center rounded-lg bg-amber-50 dark:bg-amber-950/30">
-        <FolderIcon className="h-10 w-10 text-amber-500" />
+        {coverSrc ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={coverSrc} alt={name} className="h-full w-full rounded-lg object-cover" />
+        ) : (
+          <FolderIcon className="h-10 w-10 text-amber-500" />
+        )}
       </div>
-      <p className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">{name}</p>
+      <div className="flex items-center justify-between gap-2">
+        <p className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">{name}</p>
+        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] text-gray-500 dark:bg-gray-800 dark:text-gray-400">{count}</span>
+      </div>
+      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{sizeLabel}</p>
     </button>
   );
 }
