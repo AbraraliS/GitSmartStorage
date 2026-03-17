@@ -67,6 +67,8 @@ export interface FileRecord {
   trashed?: boolean;
   /** ISO timestamp of when the file was moved to trash. */
   trashedAt?: string;
+  /** True on all files uploaded after the double-base64 encoding fix (2026-03-16). */
+  fixedEncoding?: boolean;
 }
 
 export interface GitStoreIndex {
@@ -90,7 +92,8 @@ export interface GitStoreIndex {
 
 export interface UploadChunk {
   index: number;
-  data: string; // base64-encoded (and optionally encrypted) content
+  /** Raw bytes — NOT pre-base64-encoded. Encoding happens once in uploadChunksBatched. */
+  data: Uint8Array;
   path: string; // path inside repo
   sha?: string; // existing blob SHA (for updates)
   /** Base64-encoded 12-byte AES-GCM IV for this chunk (set when encryption is enabled) */

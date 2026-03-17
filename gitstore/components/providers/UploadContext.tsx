@@ -172,6 +172,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
           encryptionKey: result.encryptionKey,
           folders: targetFolder && targetFolder !== "/" ? [targetFolder] : [],
           thumbnail: result.thumbnail ?? undefined,
+          fixedEncoding: true,
         };
 
         // Single index write — no second write from enrichUploadedFileAction

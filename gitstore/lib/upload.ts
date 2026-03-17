@@ -90,14 +90,13 @@ async function compressBlob(blob: Blob): Promise<Blob> {
   }
 }
 
-// ─── Base64 encode ────────────────────────────────────────────────────────
-
-async function blobToBase64(blob: Blob): Promise<string> {
-  const buffer = await blob.arrayBuffer();
-  const bytes = new Uint8Array(buffer);
+// Use chunked approach to avoid call-stack overflow on large files
+function uint8ArrayToBase64(bytes: Uint8Array): string {
   let binary = "";
-  for (let i = 0; i < bytes.byteLength; i++) {
-    binary += String.fromCharCode(bytes[i]);
+  const chunkSize = 8192;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const slice = bytes.subarray(i, i + chunkSize);
+    binary += String.fromCharCode(...slice);
   }
   return btoa(binary);
 }
@@ -272,14 +271,15 @@ export async function prepareChunks(
       ivs.push(iv);
     }
 
-    const content = await blobToBase64(processedBlob);
+    // Extract raw bytes — base64 encoding happens once in uploadChunksBatched
+    const rawBytes = new Uint8Array(await processedBlob.arrayBuffer());
     // Keep date prefix so chunks/{hash} dirs are scoped per month inside the shared repo
     const datePrefix = basePath.split("/").slice(0, 2).join("/");
     const chunkPath = isSingleChunk
       ? basePath
       : `${datePrefix}/chunks/${hash}/${String(raw.index).padStart(5, "0")}`;
 
-    prepared.push({ index: raw.index, data: content, path: chunkPath, iv: chunkIv });
+    prepared.push({ index: raw.index, data: rawBytes, path: chunkPath, iv: chunkIv });
   }
 
   return { chunks: prepared, ivs };
@@ -301,19 +301,22 @@ export async function uploadChunksBatched(
 
     await Promise.all(
       batch.map(async (chunk) => {
+        // Encode raw bytes to base64 here — this is the single encoding point
+        const base64Content = uint8ArrayToBase64(chunk.data);
+
         const res = await fetch("/api/upload/chunk", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             repo: nodeRepo,
             path: chunk.path,
-            content: chunk.data,
+            content: base64Content,
             sha: chunk.sha,
           }),
         });
 
         if (!res.ok) {
-          const error = await res.json().catch(() => ({ error: "Unknown error" }));
+          const error = await res.json().catch(() => ({ error: "Unknown error" })) as { error: string };
           throw new Error(
             `Chunk upload failed (${chunk.path}): ${error.error}`
           );

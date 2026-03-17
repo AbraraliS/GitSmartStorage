@@ -38,6 +38,7 @@ const FileRecordSchema = z.object({
   trashedAt:   z.string().optional(),
   folders:     z.array(z.string()).default([]),
   repo:        z.string().optional(),
+  fixedEncoding: z.boolean().optional(),
 });
 
 const CompleteSchema = z.object({

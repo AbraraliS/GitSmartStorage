@@ -116,6 +116,13 @@ export default function DashboardPage() {
     };
   }, [index, node, path, q, smartType, smartValue, view]);
 
+  // Must be before any early returns — Rules of Hooks
+  const hasLegacyFiles = useMemo(
+    () => Object.values(index?.files ?? {}).some((f) => !f.trashed && f.encryptionKey && !f.fixedEncoding),
+    [index]
+  );
+  const [bannerDismissed, setBannerDismissed] = useState(false);
+
   if (loading) {
     return (
       <section className="space-y-4">
@@ -141,6 +148,23 @@ export default function DashboardPage() {
 
   return (
     <section className="space-y-4">
+      {hasLegacyFiles && !bannerDismissed && (
+        <div className="flex items-start justify-between gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-300">
+          <p>
+            <strong>⚠️ Previously uploaded files need to be re-uploaded.</strong>{" "}
+            A bug in the upload pipeline caused files to be stored with corrupted encoding.
+            Delete existing files and re-upload them to fix previews and downloads.
+          </p>
+          <button
+            type="button"
+            onClick={() => setBannerDismissed(true)}
+            className="shrink-0 text-amber-400 hover:text-amber-200"
+            aria-label="Dismiss"
+          >
+            ✕
+          </button>
+        </div>
+      )}
       {view === "folder" && (
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{currentFolderName}</h2>
