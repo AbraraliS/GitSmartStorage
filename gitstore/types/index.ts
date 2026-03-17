@@ -92,8 +92,8 @@ export interface GitStoreIndex {
 
 export interface UploadChunk {
   index: number;
-  /** Raw bytes — NOT pre-base64-encoded. Encoding happens once in uploadChunksBatched. */
-  data: Uint8Array;
+  /** Base64 string (single-encoded) — ready for the GitHub Contents API content field. */
+  data: string;
   path: string; // path inside repo
   sha?: string; // existing blob SHA (for updates)
   /** Base64-encoded 12-byte AES-GCM IV for this chunk (set when encryption is enabled) */

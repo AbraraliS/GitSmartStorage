@@ -90,15 +90,22 @@ async function compressBlob(blob: Blob): Promise<Blob> {
   }
 }
 
-// Use chunked approach to avoid call-stack overflow on large files
-function uint8ArrayToBase64(bytes: Uint8Array): string {
-  let binary = "";
-  const chunkSize = 8192;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    const slice = bytes.subarray(i, i + chunkSize);
-    binary += String.fromCharCode(...slice);
-  }
-  return btoa(binary);
+// Converts a Blob to a base64 string suitable for the GitHub Contents API.
+// FileReader.readAsDataURL handles binary data correctly across all browsers
+// and avoids the btoa() call-stack overflow on large chunks.
+async function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      // dataUrl = "data:application/octet-stream;base64,AAAA..."
+      const base64 = dataUrl.split(",")[1];
+      if (!base64) reject(new Error("FileReader produced no base64 data"));
+      else resolve(base64);
+    };
+    reader.onerror = () => reject(reader.error ?? new Error("FileReader error"));
+    reader.readAsDataURL(blob);
+  });
 }
 
 function base64ToBytes(value: string): Uint8Array {
@@ -271,15 +278,15 @@ export async function prepareChunks(
       ivs.push(iv);
     }
 
-    // Extract raw bytes — base64 encoding happens once in uploadChunksBatched
-    const rawBytes = new Uint8Array(await processedBlob.arrayBuffer());
+    // Encode to base64 once here — this is the single encoding point for the pipeline
+    const base64Content = await blobToBase64(processedBlob);
     // Keep date prefix so chunks/{hash} dirs are scoped per month inside the shared repo
     const datePrefix = basePath.split("/").slice(0, 2).join("/");
     const chunkPath = isSingleChunk
       ? basePath
       : `${datePrefix}/chunks/${hash}/${String(raw.index).padStart(5, "0")}`;
 
-    prepared.push({ index: raw.index, data: rawBytes, path: chunkPath, iv: chunkIv });
+    prepared.push({ index: raw.index, data: base64Content, path: chunkPath, iv: chunkIv });
   }
 
   return { chunks: prepared, ivs };
@@ -301,16 +308,14 @@ export async function uploadChunksBatched(
 
     await Promise.all(
       batch.map(async (chunk) => {
-        // Encode raw bytes to base64 here — this is the single encoding point
-        const base64Content = uint8ArrayToBase64(chunk.data);
-
+        // chunk.data is already a single-encoded base64 string from prepareChunks
         const res = await fetch("/api/upload/chunk", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             repo: nodeRepo,
             path: chunk.path,
-            content: base64Content,
+            content: chunk.data,
             sha: chunk.sha,
           }),
         });
