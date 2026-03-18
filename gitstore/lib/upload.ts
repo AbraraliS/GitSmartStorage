@@ -45,13 +45,32 @@ export async function getFileHash(file: File): Promise<string> {
 // ─── Deduplication ──────────────────────────────────────────────────────
 
 /**
- * Returns true if the hash already exists in the L1 in-memory index.
- * Caller should then skip the upload entirely.
+ * Returns true if the hash already exists in any available cache layer,
+ * falling back from L1 (in-memory) → L2 (IndexedDB) → server.
+ * Must be awaited — use `if (await isDuplicate(hash))` at the call site.
  */
-export function isDuplicate(hash: string): boolean {
-  const index = l1GetIndex();
-  if (!index) return false;
-  return hash in index.files;
+export async function isDuplicate(hash: string): Promise<boolean> {
+  // L1 — fastest, available immediately after first load
+  const l1 = l1GetIndex();
+  if (l1) return hash in l1.files;
+
+  // L2 — IndexedDB, survives page refresh
+  const { l2GetIndex } = await import("./cache");
+  const l2 = await l2GetIndex();
+  if (l2) return hash in l2.files;
+
+  // Neither cache available — check server as last resort
+  try {
+    const res = await fetch(`/api/files?hash=${encodeURIComponent(hash)}`);
+    if (res.ok) {
+      const data = (await res.json()) as { files?: Array<{ hash: string }> };
+      return (data.files ?? []).some((f) => f.hash === hash);
+    }
+  } catch {
+    // Network error — assume not duplicate, let upload proceed
+  }
+
+  return false;
 }
 
 // ─── Chunking ────────────────────────────────────────────────────────────
@@ -397,7 +416,7 @@ export async function runUploadPipeline(
 
   // Step 2: Dedup check
   reportProgress("dedup");
-  if (isDuplicate(hash)) {
+  if (await isDuplicate(hash)) {
     reportProgress("done", 1, 1);
     return {
       hash,

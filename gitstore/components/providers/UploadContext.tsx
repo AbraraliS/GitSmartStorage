@@ -151,7 +151,11 @@ export function UploadProvider({ children }: { children: ReactNode }) {
         });
 
         if (result.skipped) {
-          updateItem(id, { status: "done", hash: result.hash });
+          updateItem(id, {
+            status: "done",
+            hash: result.hash,
+            error: "Already uploaded — skipped duplicate",
+          });
           maybeAutoDismiss();
           return;
         }

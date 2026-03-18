@@ -114,6 +114,13 @@ export function IndexProvider({ children }: { children: ReactNode }) {
     })();
   }, [refresh, session, status]);
 
+  // Listen for external refresh requests (e.g. PreviewModal delete action)
+  useEffect(() => {
+    const onRefresh = () => void refresh(true);
+    window.addEventListener("gitstore:refresh-index", onRefresh);
+    return () => window.removeEventListener("gitstore:refresh-index", onRefresh);
+  }, [refresh]);
+
   const value = useMemo<IndexContextValue>(
     () => ({ index, loading, error, refresh, setIndex }),
     [index, loading, error, refresh, setIndex]

@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
+  AlertTriangleIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   DownloadIcon,
@@ -70,6 +71,8 @@ export function PreviewModal({
   const [mimeType, setMimeType] = useState<string>("");
   const [textContent, setTextContent] = useState<string | null>(null);
   const [codeHtml, setCodeHtml] = useState<string | null>(null);
+  const [isCorrupted, setIsCorrupted] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const mediaRef = useRef<HTMLVideoElement | HTMLAudioElement | null>(null);
 
   // Revoke old object URL when file changes
@@ -92,6 +95,8 @@ export function PreviewModal({
     setMimeType("");
     setTextContent(null);
     setCodeHtml(null);
+    setIsCorrupted(false);
+    setDeleting(false);
 
     const load = async () => {
       try {
@@ -99,15 +104,18 @@ export function PreviewModal({
           `/api/files/download?hash=${encodeURIComponent(file.hash)}`
         );
 
-        if (!res.ok) {
-          let errMsg = `Server error ${res.status}`;
-          try {
-            const json = (await res.json()) as { error?: string };
-            if (json.error) errMsg = json.error;
-          } catch {
-            // ignore parse error
+        if (res.status === 422) {
+          // Corrupted file — uploaded before encoding fix, cannot be recovered
+          if (active) {
+            setIsCorrupted(true);
+            setLoading(false);
           }
-          throw new Error(errMsg);
+          return;
+        }
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+          throw new Error((errData as { error?: string }).error ?? `Failed: ${res.status}`);
         }
 
         const buffer = await res.arrayBuffer();

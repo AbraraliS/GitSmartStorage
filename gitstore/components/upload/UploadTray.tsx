@@ -170,6 +170,11 @@ export function UploadTray() {
               {item.status === "error" && item.error && (
                 <p className="text-xs text-red-400">{item.error}</p>
               )}
+
+              {/* Duplicate / skipped message */}
+              {item.status === "done" && item.error?.includes("duplicate") && (
+                <p className="text-xs text-amber-400">{item.error}</p>
+              )}
             </div>
           );
         })}
