@@ -81,7 +81,7 @@ export async function POST(req: NextRequest) {
   try {
     const octokit = createOctokit(accessToken);
 
-    const maxAttempts = 3;
+    const maxAttempts = 5;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         // Re-read on every attempt so we merge against the latest index state.
@@ -113,13 +113,16 @@ export async function POST(req: NextRequest) {
         const status = (err as { status?: number })?.status;
         const isWriteConflict = status === 409 || status === 422;
         if (isWriteConflict && attempt < maxAttempts) {
+          // Exponential back-off: 100ms, 200ms, 400ms, 800ms
+          // This gives GitHub time to settle before we re-read the latest SHA.
+          await new Promise((res) => setTimeout(res, 100 * 2 ** (attempt - 1)));
           continue;
         }
         throw err;
       }
     }
 
-    return NextResponse.json({ error: "Index write conflict" }, { status: 500 });
+    return NextResponse.json({ error: "Index write conflict after retries" }, { status: 409 });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Index write failed";
     return NextResponse.json({ error: message }, { status: 500 });

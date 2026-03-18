@@ -125,6 +125,9 @@ export async function readRemoteIndex(
 /**
  * Write index.json to master AND secondary name-node repos atomically.
  * Pass `sha` if updating an existing file; omit when creating for the first time.
+ *
+ * Automatically retries up to 5 times with exponential back-off on 409/422
+ * SHA conflicts, re-reading the latest master SHA before each retry.
  */
 export async function writeRemoteIndex(
   octokit: Octokit,
@@ -135,34 +138,60 @@ export async function writeRemoteIndex(
   const payload = JSON.stringify({ ...index, updated_at: new Date().toISOString(), version: 1 }, null, 2);
   const content = Buffer.from(payload).toString("base64");
 
-  // Write to master
-  const masterResponse = await octokit.repos.createOrUpdateFileContents({
-    owner,
-    repo: MASTER_REPO,
-    path: INDEX_FILE_PATH,
-    message: "chore: update index",
-    content,
-    ...(masterSha ? { sha: masterSha } : {}),
-  });
+  const maxAttempts = 5;
+  let currentSha = masterSha;
 
-  // Mirror to secondary (best-effort — do not fail upload if this fails)
-  try {
-    const secondaryFile = await readRemoteIndexFromRepo(octokit, owner, SECONDARY_REPO);
-    await octokit.repos.createOrUpdateFileContents({
-      owner,
-      repo: SECONDARY_REPO,
-      path: INDEX_FILE_PATH,
-      message: "chore: sync from master",
-      content,
-      ...(secondaryFile?.sha ? { sha: secondaryFile.sha } : {}),
-    });
-  } catch {
-    // Secondary sync failure is non-fatal
-    console.warn("[gitstore] Secondary name-node sync failed — will retry on next upload");
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      // Write to master
+      await octokit.repos.createOrUpdateFileContents({
+        owner,
+        repo: MASTER_REPO,
+        path: INDEX_FILE_PATH,
+        message: "chore: update index",
+        content,
+        ...(currentSha ? { sha: currentSha } : {}),
+      });
+
+      // Mirror to secondary (best-effort — do not fail upload if this fails)
+      try {
+        const secondaryFile = await readRemoteIndexFromRepo(octokit, owner, SECONDARY_REPO);
+        await octokit.repos.createOrUpdateFileContents({
+          owner,
+          repo: SECONDARY_REPO,
+          path: INDEX_FILE_PATH,
+          message: "chore: sync from master",
+          content,
+          ...(secondaryFile?.sha ? { sha: secondaryFile.sha } : {}),
+        });
+      } catch {
+        // Secondary sync failure is non-fatal
+        console.warn("[gitstore] Secondary name-node sync failed — will retry on next upload");
+      }
+
+      return; // success
+    } catch (err: unknown) {
+      const status = (err as { status?: number })?.status;
+      const isConflict = status === 409 || status === 422;
+
+      if (isConflict && attempt < maxAttempts) {
+        // Re-read the latest SHA from master before retrying.
+        // Exponential back-off: 100ms, 200ms, 400ms, 800ms
+        await new Promise((res) => setTimeout(res, 100 * 2 ** (attempt - 1)));
+        try {
+          const fresh = await readRemoteIndexFromRepo(octokit, owner, MASTER_REPO);
+          currentSha = fresh?.sha;
+        } catch {
+          // If re-read fails, keep the stale SHA and let the next attempt fail cleanly
+        }
+        continue;
+      }
+
+      throw err;
+    }
   }
-
-  void masterResponse; // suppress unused var warning
 }
+
 
 async function readRemoteIndexFromRepo(
   octokit: Octokit,

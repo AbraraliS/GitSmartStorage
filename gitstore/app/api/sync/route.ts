@@ -73,13 +73,28 @@ export async function POST() {
 
   try {
     const octokit = createOctokit(accessToken);
-    const remote  = await readRemoteIndex(octokit, login);
-    if (!remote) return NextResponse.json({ error: "Master index not found" }, { status: 404 });
 
-    // writeRemoteIndex mirrors master → secondary
-    await writeRemoteIndex(octokit, login, remote.content, remote.sha);
+    const maxAttempts = 4;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const remote = await readRemoteIndex(octokit, login);
+        if (!remote) return NextResponse.json({ error: "Master index not found" }, { status: 404 });
 
-    return NextResponse.json({ ok: true, synced_at: new Date().toISOString() });
+        // writeRemoteIndex mirrors master → secondary
+        await writeRemoteIndex(octokit, login, remote.content, remote.sha);
+        return NextResponse.json({ ok: true, synced_at: new Date().toISOString() });
+      } catch (err: unknown) {
+        const status = (err as { status?: number })?.status;
+        const isConflict = status === 409 || status === 422;
+        if (isConflict && attempt < maxAttempts) {
+          await new Promise((res) => setTimeout(res, 150 * 2 ** (attempt - 1)));
+          continue;
+        }
+        throw err;
+      }
+    }
+
+    return NextResponse.json({ error: "Sync conflict after retries" }, { status: 409 });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Sync failed";
     return NextResponse.json({ error: message }, { status: 500 });
