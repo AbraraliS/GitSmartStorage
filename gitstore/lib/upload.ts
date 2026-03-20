@@ -146,88 +146,7 @@ function blobToBase64(blob: Blob): Promise<string> {
   });
 }
 
-function base64ToBytes(value: string): Uint8Array {
-  const binary = atob(value);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
-}
 
-function base64ToArrayBuffer(value: string): ArrayBuffer {
-  const bytes = base64ToBytes(value);
-  const out = new Uint8Array(bytes.length);
-  out.set(bytes);
-  return out.buffer;
-}
-
-// ─── AES-256-GCM encryption ───────────────────────────────────────────────
-
-/** Whether client-side encryption is enabled (always true in production). */
-export const ENCRYPTION_ENABLED = true;
-
-/**
- * Generate a new AES-256-GCM CryptoKey for a single file upload.
- * The key is non-extractable by default; pass extractable=true to export it afterward.
- */
-export async function generateFileKey(): Promise<CryptoKey> {
-  return crypto.subtle.generateKey(
-    { name: "AES-GCM", length: 256 },
-    true, // extractable so we can export and store alongside the file record
-    ["encrypt", "decrypt"]
-  );
-}
-
-/** Export a CryptoKey to a base64 string for storage in the FileRecord. */
-export async function exportKeyToBase64(key: CryptoKey): Promise<string> {
-  const raw = await crypto.subtle.exportKey("raw", key);
-  const bytes = new Uint8Array(raw);
-  let binary = "";
-  for (let i = 0; i < bytes.byteLength; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary);
-}
-
-/**
- * Encrypt a Blob with AES-256-GCM.
- * Returns the ciphertext as a new Blob and the 12-byte IV encoded as base64.
- */
-async function encryptBlob(
-  blob: Blob,
-  key: CryptoKey
-): Promise<{ encrypted: Blob; iv: string }> {
-  const ivBytes = crypto.getRandomValues(new Uint8Array(12)); // 96-bit IV for GCM
-  const plaintext = await blob.arrayBuffer();
-  const ciphertext = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv: ivBytes },
-    key,
-    plaintext
-  );
-  // Base64-encode the IV for storage in the FileRecord
-  let ivBinary = "";
-  for (let i = 0; i < ivBytes.byteLength; i++) {
-    ivBinary += String.fromCharCode(ivBytes[i]);
-  }
-  return {
-    encrypted: new Blob([ciphertext]),
-    iv: btoa(ivBinary),
-  };
-}
-
-async function importKeyFromBase64(base64Key: string): Promise<CryptoKey> {
-  const raw = base64ToArrayBuffer(base64Key);
-  return crypto.subtle.importKey("raw", raw, { name: "AES-GCM" }, false, ["decrypt"]);
-}
-
-export async function decryptChunk(
-  encryptedBuffer: ArrayBuffer,
-  base64Iv: string,
-  base64Key: string
-): Promise<ArrayBuffer> {
-  const key = await importKeyFromBase64(base64Key);
-  const iv = new Uint8Array(base64ToArrayBuffer(base64Iv));
-  return crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, encryptedBuffer);
-}
 
 export async function generateThumbnail(blob: Blob): Promise<string | null> {
   if (blob.type.startsWith("image/")) {
@@ -286,9 +205,8 @@ export async function generateThumbnail(blob: Blob): Promise<string | null> {
 export async function prepareChunks(
   file: File,
   basePath: string,
-  hash: string,
-  encryptionKey?: CryptoKey
-): Promise<{ chunks: UploadChunk[]; ivs: string[] }> {
+  hash: string
+): Promise<UploadChunk[]> {
   if (!hash) {
     throw new Error("Missing file hash for chunk preparation");
   }
@@ -298,22 +216,12 @@ export async function prepareChunks(
   const isSingleChunk = rawChunks.length === 1;
 
   const prepared: UploadChunk[] = [];
-  const ivs: string[] = [];
 
   for (const raw of rawChunks) {
     let processedBlob = raw.blob;
 
     if (compress) {
       processedBlob = await compressBlob(processedBlob);
-    }
-
-    // Encrypt if a key is provided (client-side AES-256-GCM)
-    let chunkIv: string | undefined;
-    if (encryptionKey && ENCRYPTION_ENABLED) {
-      const { encrypted, iv } = await encryptBlob(processedBlob, encryptionKey);
-      processedBlob = encrypted;
-      chunkIv = iv;
-      ivs.push(iv);
     }
 
     // Encode to base64 once here — this is the single encoding point for the pipeline
@@ -324,10 +232,10 @@ export async function prepareChunks(
       ? basePath
       : `${datePrefix}/chunks/${hash}/${String(raw.index).padStart(5, "0")}`;
 
-    prepared.push({ index: raw.index, data: base64Content, path: chunkPath, iv: chunkIv });
+    prepared.push({ index: raw.index, data: base64Content, path: chunkPath });
   }
 
-  return { chunks: prepared, ivs };
+  return prepared;
 }
 
 // ─── Upload batching ──────────────────────────────────────────────────────
@@ -397,10 +305,6 @@ export interface UploadPipelineResult {
   folder: string;
   chunks: string[];
   skipped: boolean; // true = dedup, no upload performed
-  /** Base64-encoded 12-byte AES-GCM IVs (one per chunk), colon-separated */
-  iv?: string;
-  /** Base64-encoded 256-bit AES-GCM file key — store in (private) FileRecord */
-  encryptionKey?: string;
   fixedEncoding?: boolean;
 }
 
@@ -489,7 +393,7 @@ export async function runUploadPipeline(
 
   const thumbnail = await generateThumbnail(file);
 
-  // Step 3 & 4 & 5: Slice, compress, [encrypt], base64
+  // Step 3 & 4 & 5: Slice, compress, base64
   const date = new Date();
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -500,10 +404,7 @@ export async function runUploadPipeline(
     .replace(/^_+|_+$/g, "") || "file";
   const basePath = `${year}/${month}/${recordKey}_${safeName}`;
 
-  // Generate a per-file AES-256-GCM key for client-side encryption
-  const fileKey = ENCRYPTION_ENABLED ? await generateFileKey() : undefined;
-
-  const { chunks, ivs } = await prepareChunks(file, basePath, hash, fileKey);
+  const chunks = await prepareChunks(file, basePath, hash);
   reportProgress("uploading", 0, chunks.length);
 
   // Step 6: Upload in batches of 4
@@ -515,9 +416,6 @@ export async function runUploadPipeline(
 
   const chunkPaths = chunks.map((c) => c.path);
 
-  // Export encryption key so it can be stored in the (private) FileRecord
-  const encryptionKey = fileKey ? await exportKeyToBase64(fileKey) : undefined;
-
   return {
     hash: recordKey,
     contentHash: hash,
@@ -528,8 +426,6 @@ export async function runUploadPipeline(
     folder,
     chunks: chunkPaths,
     skipped: false,
-    iv: ivs.length > 0 ? ivs.join(":") : undefined,
-    encryptionKey,
     fixedEncoding: true,
   };
 }

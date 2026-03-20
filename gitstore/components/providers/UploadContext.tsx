@@ -173,8 +173,6 @@ export function UploadProvider({ children }: { children: ReactNode }) {
           created: new Date().toISOString(),
           sync_status: "syncing",
           chunks: result.chunks.length > 1 ? result.chunks : undefined,
-          iv: result.iv,
-          encryptionKey: result.encryptionKey,
           folders: targetFolder && targetFolder !== "/" ? [targetFolder] : [],
           thumbnail: result.thumbnail ?? undefined,
           fixedEncoding: true,

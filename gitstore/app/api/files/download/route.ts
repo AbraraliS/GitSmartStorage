@@ -135,19 +135,10 @@ export async function GET(req: NextRequest) {
           console.log(`[download] chunk ${i}: encrypted=${bytes.length} decrypted=${decrypted.length}`);
         } catch (err) {
           console.error(`[download] Decryption failed chunk ${i}:`, err);
-          const msg = err instanceof Error ? err.message : String(err);
-          // "too small" / "too short" means the stored data is still base64 text
-          // rather than raw encrypted bytes — this is an old double-encoded upload
-          // that cannot be recovered.
-          if (msg.toLowerCase().includes("too small") || msg.toLowerCase().includes("too short")) {
-            return NextResponse.json(
-              { error: "This file was uploaded with a bug that corrupted it. Please delete and re-upload." },
-              { status: 422 }
-            );
-          }
+          // "too small" = double-encoded old file — show corrupted UI, not generic error
           return NextResponse.json(
-            { error: `Decryption failed for chunk ${i}: ${msg}` },
-            { status: 500 }
+            { error: "This file was uploaded with a bug that corrupted it. Please delete and re-upload." },
+            { status: 422 }
           );
         }
       } else {
