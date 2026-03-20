@@ -151,7 +151,18 @@ export async function GET(req: NextRequest) {
           );
         }
       } else {
-        // No encryption — raw bytes
+        // No encryption — raw bytes directly from GitHub
+        // Guard: if bytes look like ASCII base64 text, this is a double-encoded old file
+        const seemsDoubleEncoded = bytes.length > 0 && bytes.every(
+          (b) => (b >= 65 && b <= 90) || (b >= 97 && b <= 122) ||
+                 (b >= 48 && b <= 57) || b === 43 || b === 47 || b === 61
+        );
+        if (seemsDoubleEncoded) {
+          return NextResponse.json(
+            { error: "This file was uploaded with a bug that corrupted it. Please delete and re-upload." },
+            { status: 422 }
+          );
+        }
         resultChunks.push(bytes);
         console.log(`[download] chunk ${i}: raw=${bytes.length} (no encryption)`);
       }

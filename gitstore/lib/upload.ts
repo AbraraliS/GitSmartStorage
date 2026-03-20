@@ -112,17 +112,20 @@ async function compressBlob(blob: Blob): Promise<Blob> {
 // Converts a Blob to a base64 string suitable for the GitHub Contents API.
 // FileReader.readAsDataURL handles binary data correctly across all browsers
 // and avoids the btoa() call-stack overflow on large chunks.
-async function blobToBase64(blob: Blob): Promise<string> {
+function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
-      const dataUrl = reader.result as string;
-      // dataUrl = "data:application/octet-stream;base64,AAAA..."
-      const base64 = dataUrl.split(",")[1];
-      if (!base64) reject(new Error("FileReader produced no base64 data"));
-      else resolve(base64);
+      const result = reader.result as string;
+      // result = "data:application/octet-stream;base64,<base64data>"
+      const comma = result.indexOf(",");
+      if (comma === -1) {
+        reject(new Error("FileReader: missing comma in data URL"));
+        return;
+      }
+      resolve(result.slice(comma + 1));
     };
-    reader.onerror = () => reject(reader.error ?? new Error("FileReader error"));
+    reader.onerror = () => reject(new Error("FileReader failed"));
     reader.readAsDataURL(blob);
   });
 }
@@ -381,6 +384,7 @@ export interface UploadPipelineResult {
   iv?: string;
   /** Base64-encoded 256-bit AES-GCM file key — store in (private) FileRecord */
   encryptionKey?: string;
+  fixedEncoding?: boolean;
 }
 
 export async function runUploadPipeline(
@@ -506,5 +510,6 @@ export async function runUploadPipeline(
     skipped: false,
     iv: ivs.length > 0 ? ivs.join(":") : undefined,
     encryptionKey,
+    fixedEncoding: true,
   };
 }

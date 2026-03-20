@@ -30,30 +30,21 @@ function extensionFromName(name: string): string {
 function getMimeFromName(name: string): string {
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
   const map: Record<string, string> = {
-    png: "image/png",
-    jpg: "image/jpeg",
-    jpeg: "image/jpeg",
-    gif: "image/gif",
-    webp: "image/webp",
-    svg: "image/svg+xml",
+    png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg",
+    gif: "image/gif", webp: "image/webp", svg: "image/svg+xml", bmp: "image/bmp",
     pdf: "application/pdf",
-    mp4: "video/mp4",
-    webm: "video/webm",
-    mov: "video/quicktime",
-    mp3: "audio/mpeg",
-    wav: "audio/wav",
-    ogg: "audio/ogg",
-    txt: "text/plain",
-    md: "text/markdown",
-    json: "application/json",
-    js: "text/javascript",
-    ts: "text/typescript",
-    html: "text/html",
-    css: "text/css",
-    xml: "application/xml",
+    mp4: "video/mp4", webm: "video/webm", mov: "video/quicktime", avi: "video/x-msvideo",
+    mp3: "audio/mpeg", wav: "audio/wav", ogg: "audio/ogg", flac: "audio/flac",
+    txt: "text/plain", md: "text/markdown", json: "application/json",
+    js: "text/javascript", ts: "text/typescript", tsx: "text/typescript",
+    jsx: "text/javascript", html: "text/html", css: "text/css",
+    xml: "application/xml", py: "text/x-python", sql: "text/x-sql",
     pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ppt: "application/vnd.ms-powerpoint",
     docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    doc: "application/msword",
     xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    xls: "application/vnd.ms-excel",
   };
   return map[ext] ?? "application/octet-stream";
 }
@@ -122,18 +113,22 @@ export function PreviewModal({
         if (!active) return;
 
         // Server returns plaintext — create blob directly
-        const resolvedMime = file.type || getMimeFromName(file.name);
-        const blob = new Blob([buffer], { type: resolvedMime });
+        const resolved =
+          file.type && file.type !== "application/octet-stream"
+            ? file.type
+            : getMimeFromName(file.name);
+        setMimeType(resolved);
+
+        const blob = new Blob([buffer], { type: resolved });
         createdUrl = URL.createObjectURL(blob);
-        setMimeType(resolvedMime);
 
         // Handle text-based files
         const isText =
-          resolvedMime.startsWith("text/") ||
-          resolvedMime.includes("json") ||
-          resolvedMime.includes("javascript") ||
-          resolvedMime.includes("typescript") ||
-          resolvedMime.includes("xml");
+          resolved.startsWith("text/") ||
+          resolved.includes("json") ||
+          resolved.includes("javascript") ||
+          resolved.includes("typescript") ||
+          resolved.includes("xml");
 
         if (isText) {
           const text = await blob.text();
@@ -141,8 +136,8 @@ export function PreviewModal({
           setTextContent(text);
 
           const isMarkdown =
-            resolvedMime.includes("markdown") ||
-            resolvedMime.startsWith("text/markdown") ||
+            resolved.includes("markdown") ||
+            resolved.startsWith("text/markdown") ||
             file.name.endsWith(".md");
 
           if (!isMarkdown) {
@@ -209,6 +204,22 @@ export function PreviewModal({
       if (createdUrl) URL.revokeObjectURL(createdUrl);
     };
   }, [file]);
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/files?hash=${encodeURIComponent(file.hash)}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error("Delete failed");
+      onClose();
+      window.dispatchEvent(new Event("gitstore:refresh-index"));
+    } catch (err) {
+      setDeleting(false);
+      setError(err instanceof Error ? err.message : "Delete failed");
+      setIsCorrupted(false);
+    }
+  };
 
   // Keyboard navigation
   useEffect(() => {
@@ -290,21 +301,21 @@ export function PreviewModal({
     }
 
     // pptx, docx, xlsx — can't render inline, offer download
-    if (
+    const isOffice = [
+      "pptx","ppt","docx","doc","xlsx","xls"
+    ].includes(file.name.split(".").pop()?.toLowerCase() ?? "") ||
       mimeType.includes("officedocument") ||
       mimeType.includes("msword") ||
       mimeType.includes("ms-excel") ||
-      mimeType.includes("ms-powerpoint") ||
-      file.name.toLowerCase().endsWith(".pptx") ||
-      file.name.toLowerCase().endsWith(".docx") ||
-      file.name.toLowerCase().endsWith(".xlsx")
-    ) {
+      mimeType.includes("ms-powerpoint");
+
+    if (isOffice && objectUrl) {
       return (
-        <div className="flex flex-col items-center gap-4 rounded-2xl bg-gray-900 p-12 text-white">
+        <div className="flex flex-col items-center gap-4 rounded-2xl bg-gray-900 p-12 text-white text-center">
           <FileIcon size={64} className="text-blue-400" />
           <p className="font-medium">{file.name}</p>
           <p className="text-sm text-gray-400">{formatBytes(file.size)}</p>
-          <p className="text-xs text-gray-500 text-center max-w-xs">
+          <p className="text-xs text-gray-500 max-w-xs">
             Office files cannot be previewed in the browser. Download to open in your Office app.
           </p>
           <a
@@ -312,7 +323,7 @@ export function PreviewModal({
             download={file.name}
             className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500"
           >
-            Download {file.name}
+            Download {file.name.split(".").pop()?.toUpperCase()}
           </a>
         </div>
       );
@@ -416,6 +427,33 @@ export function PreviewModal({
       <div className="flex items-center justify-center px-4 pt-16 pb-4 max-h-screen max-w-full">
         {loading ? (
           <div className="h-64 w-64 animate-pulse rounded-xl bg-gray-700" />
+        ) : isCorrupted ? (
+          <div className="flex max-w-sm flex-col items-center gap-5 rounded-2xl bg-gray-900 border border-amber-800/40 px-10 py-12 text-center">
+            <div className="rounded-full bg-amber-500/10 p-4">
+              <AlertTriangleIcon className="h-10 w-10 text-amber-400" />
+            </div>
+            <div>
+              <p className="text-base font-semibold text-amber-300">File is corrupted</p>
+              <p className="mt-2 text-sm text-gray-400 leading-relaxed">
+                This file was uploaded before a bug fix and cannot be recovered. Delete it and re-upload the original file.
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={onClose}
+                className="rounded-lg border border-gray-700 px-4 py-2 text-sm text-gray-400 hover:bg-gray-800"
+              >
+                Close
+              </button>
+              <button
+                onClick={() => void handleDelete()}
+                disabled={deleting}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-500 disabled:opacity-50"
+              >
+                {deleting ? "Deleting…" : "Delete file"}
+              </button>
+            </div>
+          </div>
         ) : error ? (
           <div className="flex max-w-sm flex-col items-center gap-3 text-center">
             <p className="text-sm font-medium text-red-400">Preview failed</p>
