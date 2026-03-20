@@ -55,7 +55,7 @@ export function BulkActionBar({
   };
 
   return (
-    <div className="fixed bottom-20 left-1/2 z-40 -translate-x-1/2 flex flex-col items-center gap-2">
+    <div data-bulk-action-bar className="fixed bottom-20 left-1/2 z-40 -translate-x-1/2 flex flex-col items-center gap-2">
       {/* Error message */}
       {error && (
         <div className="rounded-lg border border-red-700 bg-red-950/80 px-4 py-2 text-xs text-red-300">

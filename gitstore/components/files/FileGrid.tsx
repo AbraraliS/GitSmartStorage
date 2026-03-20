@@ -82,7 +82,10 @@ export function FileGrid({
     };
     const onPointerDown = (event: MouseEvent) => {
       if (!containerRef.current) return;
-      if (!containerRef.current.contains(event.target as Node)) {
+      const target = event.target as Element;
+      // Don't clear selection when clicking inside the BulkActionBar
+      if (target.closest("[data-bulk-action-bar]")) return;
+      if (!containerRef.current.contains(target)) {
         clearSelection();
       }
     };
