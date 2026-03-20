@@ -42,52 +42,6 @@ export async function getFileHash(file: File): Promise<string> {
   return full.slice(0, 12); // first 12 hex chars = 6 bytes
 }
 
-/**
- * Creates a unique index key by combining content hash with filename.
- * This allows the same file content to be stored multiple times under
- * different names, each as a separate record.
- */
-async function generateRecordKey(
-  contentHash: string,
-  fileName: string
-): Promise<string> {
-  const input = `${contentHash}:${fileName}`;
-  const bytes = new TextEncoder().encode(input);
-  const hashBuffer = await crypto.subtle.digest("SHA-256", bytes);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 12);
-}
-
-// ─── Deduplication ──────────────────────────────────────────────────────
-
-/**
- * Returns true if the hash already exists in any available cache layer,
- * falling back from L1 (in-memory) → L2 (IndexedDB) → server.
- * Must be awaited — use `if (await isDuplicateByHashAndName(recordKey))` at the call site.
- */
-export async function isDuplicateByHashAndName(recordKey: string): Promise<boolean> {
-  // L1 — fastest, available immediately after first load
-  const l1 = l1GetIndex();
-  if (l1) return recordKey in l1.files;
-
-  // L2 — IndexedDB, survives page refresh
-  const { l2GetIndex } = await import("./cache");
-  const l2 = await l2GetIndex();
-  if (l2) return recordKey in l2.files;
-
-  // Neither cache available — check server as last resort
-  try {
-    const res = await fetch(`/api/files?hash=${encodeURIComponent(recordKey)}`);
-    if (res.ok) {
-      const data = (await res.json()) as { files?: Array<{ hash: string }> };
-      return (data.files ?? []).some((f) => f.hash === recordKey);
-    }
-  } catch {
-    // Network error — assume not duplicate, let upload proceed
-  }
-
-  return false;
-}
 
 // ─── Chunking ────────────────────────────────────────────────────────────
 
@@ -280,6 +234,50 @@ export async function uploadChunksBatched(
   }
 }
 
+/**
+ * Checks the current index for files with the same name.
+ * If a conflict exists, appends (1), (2), (3)... before the extension.
+ * Examples:
+ *   "photo.jpg"        → "photo (1).jpg" if "photo.jpg" exists
+ *   "photo (1).jpg"    → "photo (2).jpg" if "photo (1).jpg" exists
+ *   "report.pdf"       → "report.pdf"    if no conflict
+ */
+function resolveFilename(
+  originalName: string,
+  index: ReturnType<typeof l1GetIndex>
+): string {
+  if (!index) return originalName;
+
+  // Build a set of all existing filenames in the index (lowercase for case-insensitive check)
+  const existingNames = new Set(
+    Object.values(index.files).map((f) => f.name.toLowerCase())
+  );
+
+  // If no conflict, return as-is
+  if (!existingNames.has(originalName.toLowerCase())) {
+    return originalName;
+  }
+
+  // Split name into base and extension
+  const lastDot = originalName.lastIndexOf(".");
+  const hasExtension = lastDot > 0;
+  const base = hasExtension ? originalName.slice(0, lastDot) : originalName;
+  const ext = hasExtension ? originalName.slice(lastDot) : ""; // e.g. ".jpg"
+
+  // Strip any existing trailing " (N)" from the base so we don't get "photo (1) (2)"
+  const cleanBase = base.replace(/\s*\(\d+\)$/, "");
+
+  // Find the lowest available number
+  let counter = 1;
+  let candidate = `${cleanBase} (${counter})${ext}`;
+  while (existingNames.has(candidate.toLowerCase())) {
+    counter++;
+    candidate = `${cleanBase} (${counter})${ext}`;
+  }
+
+  return candidate;
+}
+
 // ─── Full pipeline ────────────────────────────────────────────────────────
 
 export interface UploadPipelineOptions {
@@ -306,6 +304,7 @@ export interface UploadPipelineResult {
   chunks: string[];
   skipped: boolean; // true = dedup, no upload performed
   fixedEncoding?: boolean;
+  resolvedName: string;
 }
 
 export async function runUploadPipeline(
@@ -338,24 +337,22 @@ export async function runUploadPipeline(
   // Step 1: Hash
   reportProgress("hashing");
   const hash = await getFileHash(file);
-  const recordKey = await generateRecordKey(hash, file.name);
+  
+  // Unique record key: content hash + filename + upload timestamp
+  // This allows the same file to be uploaded multiple times under any name
+  const uploadKey = await (async () => {
+    const input = `${hash}:${file.name}:${Date.now()}`;
+    const bytes = new TextEncoder().encode(input);
+    const buf = await crypto.subtle.digest("SHA-256", bytes);
+    return Array.from(new Uint8Array(buf))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("")
+      .slice(0, 12);
+  })();
 
-  // Step 2: Dedup check
-  reportProgress("dedup");
-  if (await isDuplicateByHashAndName(recordKey)) {
-    reportProgress("done", 1, 1);
-    return {
-      hash: recordKey,
-      contentHash: hash,
-      path: "",
-      nodeName: nodeName ?? "other",
-      nodeRepo: nodeRepo ?? "gitstore-other",
-      thumbnail: null,
-      folder,
-      chunks: [],
-      skipped: true,
-    };
-  }
+  // Dedup removed — every upload is treated as unique.
+  // The uploadKey above already encodes filename and timestamp,
+  // so same content produces different index entries.
 
   const index = l1GetIndex();
   const autoNode = classifyFile(file.type || "application/octet-stream");
@@ -401,8 +398,17 @@ export async function runUploadPipeline(
     .replace(/\s+/g, "_")
     .replace(/[^a-zA-Z0-9._-]/g, "_")
     .replace(/__+/g, "_")
-    .replace(/^_+|_+$/g, "") || "file";
-  const basePath = `${year}/${month}/${recordKey}_${safeName}`;
+    .replace(/^_+|_+$/g, "");
+
+  // Resolve naming conflict — if a file with this name already exists,
+  // append (1), (2), (3)... before the extension until the name is unique.
+  const resolvedName = resolveFilename(file.name, l1GetIndex());
+
+  const basePath = `${year}/${month}/${uploadKey}_${resolvedName
+    .replace(/\s+/g, "_")
+    .replace(/[^a-zA-Z0-9._-]/g, "_")
+    .replace(/__+/g, "_")
+    .replace(/^_+|_+$/g, "")}`;
 
   const chunks = await prepareChunks(file, basePath, hash);
   reportProgress("uploading", 0, chunks.length);
@@ -417,7 +423,7 @@ export async function runUploadPipeline(
   const chunkPaths = chunks.map((c) => c.path);
 
   return {
-    hash: recordKey,
+    hash: uploadKey,
     contentHash: hash,
     path: basePath,
     nodeName: resolvedNode,
@@ -427,5 +433,6 @@ export async function runUploadPipeline(
     chunks: chunkPaths,
     skipped: false,
     fixedEncoding: true,
+    resolvedName,
   };
 }

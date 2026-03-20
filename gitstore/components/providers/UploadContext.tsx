@@ -164,7 +164,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
         const record: FileRecord = {
           hash: result.hash,
           contentHash: result.contentHash,
-          name: file.name,
+          name: result.resolvedName,
           node: result.nodeName,
           path: result.path,
           size: file.size,
