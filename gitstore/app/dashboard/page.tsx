@@ -13,7 +13,11 @@ import {
 } from "@/lib/index";
 import { FileGrid } from "@/components/files/FileGrid";
 import { FileList } from "@/components/files/FileList";
-import { emptyTrashAction } from "@/app/dashboard/actions";
+import { 
+  emptyTrashAction, 
+  bulkRestoreAction, 
+  bulkDeleteAction 
+} from "@/app/dashboard/actions";
 import { DropZone } from "@/components/upload/DropZone";
 import { NewFolderDialog } from "@/components/ui/NewFolderDialog";
 
@@ -77,7 +81,13 @@ export default function DashboardPage() {
     }
 
     if (view === "trash") {
-      return { files: getTrashedFiles(index), folders: [] as FolderEntry[] };
+      const trashed = Object.values(index.files).filter((f) => f.trashed);
+      // Sort by trashedAt ascending (oldest trash first)
+      trashed.sort((a, b) =>
+        new Date(a.trashedAt ?? a.created).getTime() -
+        new Date(b.trashedAt ?? b.created).getTime()
+      );
+      return { files: trashed, folders: [] };
     }
 
     if (view === "smart") {
@@ -190,17 +200,41 @@ export default function DashboardPage() {
       )}
 
       {view === "trash" && (
-        <div className="flex justify-end">
-          <button
-            type="button"
-            className="rounded-md bg-red-600 px-3 py-2 text-sm text-white hover:bg-red-500"
-            onClick={async () => {
-              const next = await emptyTrashAction();
-              await setIndex(next);
-            }}
-          >
-            Empty trash
-          </button>
+        <div className="mb-4 flex items-center justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-gray-100">Trash</h2>
+            <p className="mt-0.5 text-xs text-gray-500">
+              {computed.files.length} item{computed.files.length !== 1 ? "s" : ""}
+              {computed.files.length > 0 && " · Files are deleted permanently after 30 days"}
+            </p>
+          </div>
+          {computed.files.length > 0 && (
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={async () => {
+                  const hashes = computed.files.map((f) => f.hash);
+                  const next = await bulkRestoreAction(hashes);
+                  await setIndex(next);
+                }}
+                className="rounded-lg border border-gray-700 px-3 py-1.5 text-sm text-gray-400 hover:bg-gray-800"
+              >
+                Restore all
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!confirm(`Permanently delete all ${computed.files.length} trashed files? This cannot be undone.`)) return;
+                  const hashes = computed.files.map((f) => f.hash);
+                  const next = await bulkDeleteAction(hashes);
+                  await setIndex(next);
+                }}
+                className="rounded-lg border border-red-800/40 bg-red-950/20 px-3 py-1.5 text-sm text-red-400 hover:bg-red-950/40"
+              >
+                Empty trash
+              </button>
+            </div>
+          )}
         </div>
       )}
 

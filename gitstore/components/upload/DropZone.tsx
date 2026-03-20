@@ -46,8 +46,10 @@ export function DropZone({
   );
 
   useEffect(() => {
-    const onNewUpload = () => {
-      if (!disabled) triggerUpload({ targetFolder });
+    const onNewUpload = (e: Event) => {
+      const customEvent = e as CustomEvent<{ folder?: string }>;
+      const folder = customEvent.detail?.folder ?? targetFolder;
+      if (!disabled) triggerUpload({ targetFolder: folder });
     };
     const onDragEnter = (e: DragEvent) => {
       e.preventDefault();

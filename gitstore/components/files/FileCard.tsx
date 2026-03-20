@@ -13,6 +13,7 @@ import {
 import { formatBytes, formatDate } from "@/lib/format";
 import { getFolderStats } from "@/lib/index";
 import type { FileRecord, GitStoreIndex } from "@/types";
+import { useSelection } from "@/components/providers/SelectionContext";
 
 const menuItemClass =
   "flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800";
@@ -32,35 +33,56 @@ export function FileCard({
   onOpen: () => void;
   onMenu: (event: React.MouseEvent<HTMLButtonElement>) => void;
 }) {
+  const { isSelected, toggle, count } = useSelection();
+  const isSelectedState = isSelected(file.hash);
+
   return (
     <article
-      className={`group rounded-xl border p-2 transition ${
-        selected
-          ? "bg-blue-50 ring-2 ring-blue-600 dark:bg-blue-950"
-          : "border-gray-200 hover:ring-2 hover:ring-blue-500 dark:border-gray-800"
+      className={`group relative cursor-pointer rounded-xl border p-2 transition ${
+        isSelectedState
+          ? "border-emerald-500 ring-2 ring-emerald-500/30 bg-emerald-950/10"
+          : "border-gray-200 dark:border-gray-800 hover:ring-2 hover:ring-blue-500"
       }`}
+      onClick={() => count > 0 ? toggle(file.hash) : onOpen()}
       onDoubleClick={onOpen}
     >
-      <div className={`mb-2 flex items-center justify-between ${showControls ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
+      <div className="absolute left-2 top-2 z-10">
         <input
           type="checkbox"
-          checked={selected}
-          onChange={onToggleSelect}
-          aria-label={`Select ${file.name}`}
-          className="h-4 w-4 rounded border-gray-300"
+          checked={isSelectedState}
+          onChange={() => toggle(file.hash)}
+          onClick={(e) => e.stopPropagation()}
+          className={`h-4 w-4 rounded border-gray-600 bg-gray-800 accent-emerald-500 cursor-pointer transition-opacity ${
+            count > 0 ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+          }`}
         />
-        <button type="button" onClick={onMenu} className="rounded p-1 hover:bg-gray-100 dark:hover:bg-gray-800" aria-label="Open file menu">
+      </div>
+
+      <div className={`mb-2 flex items-center justify-end ${showControls ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
+        <button type="button" onClick={(e) => { e.stopPropagation(); onMenu(e); }} className="rounded p-1 hover:bg-gray-100 dark:hover:bg-gray-800" aria-label="Open file menu">
           <MoreVerticalIcon className="h-4 w-4" />
         </button>
       </div>
 
-      <div className="mb-2 flex h-24 items-center justify-center overflow-hidden rounded-lg bg-gray-100 dark:bg-gray-800">
+      <div className="mb-2 flex h-24 items-center justify-center overflow-hidden rounded-lg bg-gray-100 dark:bg-gray-800 relative">
         {file.thumbnail ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={file.thumbnail} alt={file.name} className="h-full w-full object-cover" />
         ) : (
           <FileIcon className="h-9 w-9 text-gray-400" />
         )}
+        
+        {file.trashed && file.trashedAt && (() => {
+          const daysAgo = Math.floor(
+            (Date.now() - new Date(file.trashedAt).getTime()) / 86400000
+          );
+          const daysLeft = 30 - daysAgo;
+          return (
+            <div className="absolute bottom-2 right-2 rounded-full border border-red-800/30 bg-red-950/80 px-1.5 py-0.5 text-[10px] text-red-400 shadow-md">
+              {daysLeft <= 0 ? "Expires today" : `${daysLeft}d`}
+            </div>
+          );
+        })()}
       </div>
 
       <p className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">{file.name}</p>

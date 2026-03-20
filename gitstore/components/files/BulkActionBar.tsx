@@ -1,122 +1,144 @@
 "use client";
 
-import { FolderInputIcon, FolderPlusIcon, StarIcon, Trash2Icon, XIcon } from "lucide-react";
 import {
-  addToFolderAction,
-  moveFilesToTrashAction,
-  moveToFolderAction,
-  removeFromFolderAction,
-  setStarredAction,
-} from "@/app/dashboard/actions";
-import type { FileRecord } from "@/types";
-import { useIndex } from "@/components/providers/IndexContext";
+  FolderInputIcon, StarIcon, Trash2Icon, XIcon,
+  RotateCcwIcon, Trash2Icon as TrashPermanentIcon, UploadCloudIcon
+} from "lucide-react";
+import { useSelection } from "@/components/providers/SelectionContext";
+
+interface BulkActionBarProps {
+  inTrash?: boolean;
+  currentFolder?: string;
+  allHashes: string[];
+  onTrash: (hashes: string[]) => Promise<void>;
+  onDelete: (hashes: string[]) => Promise<void>;
+  onRestore: (hashes: string[]) => Promise<void>;
+  onMoveToFolder: (hashes: string[]) => void;
+  onRemoveFromFolder?: (hashes: string[]) => Promise<void>;
+  onStar: (hashes: string[]) => Promise<void>;
+}
 
 export function BulkActionBar({
-  selectedFiles,
+  inTrash = false,
   currentFolder,
-  isFolderView,
-  onClear,
-}: {
-  selectedFiles: FileRecord[];
-  currentFolder?: string;
-  isFolderView: boolean;
-  onClear: () => void;
-}) {
-  const { setIndex } = useIndex();
+  allHashes,
+  onTrash,
+  onDelete,
+  onRestore,
+  onMoveToFolder,
+  onRemoveFromFolder,
+  onStar,
+}: BulkActionBarProps) {
+  const { selected, selectAll, clearSelection, count } = useSelection();
+  const hashes = Array.from(selected);
 
-  if (selectedFiles.length === 0) return null;
+  if (count === 0) return null;
 
-  const hashes = selectedFiles.map((file) => file.hash);
+  const allSelected = allHashes.length > 0 && allHashes.every((h) => selected.has(h));
 
   return (
-    <div className="fixed inset-x-0 bottom-4 z-[115] flex justify-center px-4">
-      <div className="flex w-full max-w-5xl flex-wrap items-center gap-2 rounded-2xl border border-gray-200 bg-white/95 px-4 py-3 shadow-lg backdrop-blur dark:border-gray-800 dark:bg-gray-900/95">
-        <span className="rounded-full bg-gray-100 px-3 py-1 text-sm text-gray-700 dark:bg-gray-800 dark:text-gray-200">
-          {selectedFiles.length} file{selectedFiles.length === 1 ? "" : "s"} selected
-        </span>
-        <button
-          type="button"
-          className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-800"
-          onClick={async () => {
-            const targetFolder = window.prompt("Add to folder", currentFolder && currentFolder !== "/" ? currentFolder : "");
-            if (!targetFolder?.trim()) return;
-            const next = await addToFolderAction(hashes, targetFolder.trim());
-            await setIndex(next);
-            onClear();
-          }}
-        >
-          <FolderPlusIcon className="h-4 w-4" />
-          Add to folder
-        </button>
-        <button
-          type="button"
-          className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-800"
-          onClick={async () => {
-            const targetFolder = window.prompt("Move to folder", currentFolder && currentFolder !== "/" ? currentFolder : "");
-            if (!targetFolder?.trim()) return;
-            const cleanTarget = targetFolder.trim();
-            const next = isFolderView && currentFolder
-              ? await moveToFolderAction(hashes, currentFolder, cleanTarget)
-              : await addToFolderAction(hashes, cleanTarget);
-            await setIndex(next);
-            onClear();
-          }}
-        >
-          <FolderInputIcon className="h-4 w-4" />
-          Move to folder
-        </button>
-        {isFolderView && currentFolder && (
-          <button
-            type="button"
-            className="rounded-xl px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-800"
-            onClick={async () => {
-              const next = await removeFromFolderAction(hashes, currentFolder);
-              await setIndex(next);
-              onClear();
-            }}
-          >
-            Remove from folder
-          </button>
-        )}
-        <button
-          type="button"
-          className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-800"
-          onClick={async () => {
-            const next = await setStarredAction(hashes, true);
-            await setIndex(next);
-            onClear();
-          }}
-        >
-          <StarIcon className="h-4 w-4" />
-          Star all
-        </button>
-        <button
-          type="button"
-          className="rounded-xl px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-800"
-          onClick={async () => {
-            const next = await setStarredAction(hashes, false);
-            await setIndex(next);
-            onClear();
-          }}
-        >
-          Unstar all
-        </button>
-        <button
-          type="button"
-          className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
-          onClick={async () => {
-            const next = await moveFilesToTrashAction(hashes);
-            await setIndex(next);
-            onClear();
-          }}
-        >
-          <Trash2Icon className="h-4 w-4" />
-          Move to trash
-        </button>
-        <button type="button" className="ml-auto rounded-xl p-2 hover:bg-gray-100 dark:hover:bg-gray-800" onClick={onClear} aria-label="Clear selection">
-          <XIcon className="h-4 w-4" />
-        </button>
-      </div>
+    <div className="fixed bottom-20 left-1/2 z-40 -translate-x-1/2 flex items-center gap-1.5 rounded-2xl border border-gray-700 bg-gray-900 px-3 py-2 shadow-2xl">
+      {/* Selection count + select all toggle */}
+      <button
+        type="button"
+        onClick={() => allSelected ? clearSelection() : selectAll(allHashes)}
+        className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm text-gray-300 hover:bg-gray-800"
+      >
+        <span className="font-semibold text-white">{count}</span>
+        <span>{allSelected ? "Deselect all" : "Select all"}</span>
+      </button>
+
+      <div className="h-5 w-px bg-gray-700" />
+
+      {inTrash ? (
+        <>
+          <BarButton
+            icon={<RotateCcwIcon className="h-4 w-4" />}
+            label="Restore"
+            onClick={() => void onRestore(hashes).then(clearSelection)}
+            className="text-emerald-400 hover:bg-emerald-950/40"
+          />
+          <BarButton
+            icon={<TrashPermanentIcon className="h-4 w-4" />}
+            label="Delete forever"
+            onClick={() => void onDelete(hashes).then(clearSelection)}
+            className="text-red-400 hover:bg-red-950/40"
+          />
+        </>
+      ) : (
+        <>
+          {currentFolder && currentFolder !== "/" && (
+            <BarButton
+              icon={<UploadCloudIcon className="h-4 w-4" />}
+              label={`Upload to ${currentFolder.split("/").pop()}`}
+              onClick={() => {
+                clearSelection();
+                // Trigger upload with the current folder pre-selected — skips picker
+                window.dispatchEvent(
+                  new CustomEvent("gitstore:new-upload", {
+                    detail: { targetFolder: currentFolder },
+                  })
+                );
+              }}
+            />
+          )}
+
+          <BarButton
+            icon={<FolderInputIcon className="h-4 w-4" />}
+            label="Move to"
+            onClick={() => onMoveToFolder(hashes)}
+          />
+          {currentFolder && currentFolder !== "/" && onRemoveFromFolder && (
+            <BarButton
+              icon={<XIcon className="h-4 w-4" />}
+              label="Remove from folder"
+              onClick={() => void onRemoveFromFolder(hashes).then(clearSelection)}
+            />
+          )}
+          <BarButton
+            icon={<StarIcon className="h-4 w-4" />}
+            label="Star"
+            onClick={() => void onStar(hashes).then(clearSelection)}
+          />
+          <BarButton
+            icon={<Trash2Icon className="h-4 w-4" />}
+            label="Trash"
+            onClick={() => void onTrash(hashes).then(clearSelection)}
+            className="text-red-400 hover:bg-red-950/40"
+          />
+        </>
+      )}
+
+      {/* Deselect */}
+      <div className="h-5 w-px bg-gray-700" />
+      <button
+        type="button"
+        onClick={clearSelection}
+        className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-800 hover:text-gray-300"
+        aria-label="Clear selection"
+      >
+        <XIcon className="h-4 w-4" />
+      </button>
     </div>
+  );
+}
+
+function BarButton({
+  icon, label, onClick, className = "",
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm text-gray-300 hover:bg-gray-800 transition ${className}`}
+    >
+      {icon}
+      <span className="hidden sm:inline">{label}</span>
+    </button>
   );
 }

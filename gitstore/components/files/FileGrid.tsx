@@ -20,9 +20,18 @@ import {
 } from "@/app/dashboard/actions";
 import { useIndex } from "@/components/providers/IndexContext";
 import { useUpload } from "@/components/providers/UploadContext";
+import { useSelection } from "@/components/providers/SelectionContext";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { RenameDialog } from "@/components/ui/RenameDialog";
 import { MoveDialog } from "@/components/ui/MoveDialog";
+import {
+  bulkTrashAction,
+  bulkDeleteAction,
+  bulkRestoreAction,
+  bulkMoveToFolderAction,
+  removeFromFolderAction,
+  bulkStarAction,
+} from "@/app/dashboard/actions";
 
 interface FolderEntry {
   name: string;
@@ -47,7 +56,7 @@ export function FileGrid({
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement | null>(null);
 
-  const [selected, setSelected] = useState<Record<string, boolean>>({});
+  const { selected, selectAll, clearSelection, count, isSelected, toggle } = useSelection();
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const [menu, setMenu] = useState<{ hash: string; x: number; y: number } | null>(null);
 
@@ -58,23 +67,23 @@ export function FileGrid({
   const [renameFolderTarget, setRenameFolderTarget] = useState<FolderEntry | null>(null);
   const [moveFolderTarget, setMoveFolderTarget] = useState<FolderEntry | null>(null);
   const [deleteFolderTarget, setDeleteFolderTarget] = useState<FolderEntry | null>(null);
+  const [bulkMovePicker, setBulkMovePicker] = useState<string[] | null>(null);
 
   const currentFile = menu ? files.find((f) => f.hash === menu.hash) : null;
   const previewFiles = useMemo(() => files.filter((f) => !f.trashed), [files]);
-  const selectedFiles = useMemo(
-    () => files.filter((file) => selected[file.hash]),
-    [files, selected]
-  );
-  const allSelected = files.length > 0 && selectedFiles.length === files.length;
+
+  const allHashes = files.map((f) => f.hash);
+  const allSelected = allHashes.length > 0 && allHashes.every((h) => selected.has(h));
+  const someSelected = count > 0;
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setSelected({});
+      if (event.key === "Escape" && count > 0) clearSelection();
     };
     const onPointerDown = (event: MouseEvent) => {
       if (!containerRef.current) return;
       if (!containerRef.current.contains(event.target as Node)) {
-        setSelected({});
+        clearSelection();
       }
     };
 
@@ -84,7 +93,7 @@ export function FileGrid({
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("mousedown", onPointerDown);
     };
-  }, []);
+  }, [count, clearSelection]);
 
   const openFolder = (folderPath: string) => {
     const next = new URLSearchParams(params.toString());
@@ -109,21 +118,29 @@ export function FileGrid({
     <>
       <div ref={containerRef} className="space-y-4">
         {files.length > 0 && (
-          <label className="inline-flex items-center gap-2 rounded-xl border border-gray-200 px-3 py-2 text-sm text-gray-700 dark:border-gray-800 dark:text-gray-200">
+          <div className="mb-3 flex items-center gap-3 px-1">
             <input
               type="checkbox"
               checked={allSelected}
-              onChange={() => {
-                if (allSelected) {
-                  setSelected({});
-                  return;
-                }
-                setSelected(Object.fromEntries(files.map((file) => [file.hash, true])));
+              ref={(el) => {
+                if (el) el.indeterminate = someSelected && !allSelected;
               }}
-              className="h-4 w-4 rounded border-gray-300"
+              onChange={() => allSelected ? clearSelection() : selectAll(allHashes)}
+              className="h-4 w-4 rounded border-gray-600 bg-gray-800 accent-emerald-500 cursor-pointer"
             />
-            Select all
-          </label>
+            <span className="text-xs text-gray-500 font-medium">
+              {someSelected ? `${count} selected` : `${files.length} files`}
+            </span>
+            {someSelected && (
+              <button
+                type="button"
+                onClick={clearSelection}
+                className="text-xs text-gray-500 hover:text-gray-300 transition"
+              >
+                Clear
+              </button>
+            )}
+          </div>
         )}
 
         <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
@@ -160,12 +177,10 @@ export function FileGrid({
             >
               <FileCard
                 file={file}
-                selected={!!selected[file.hash]}
+                selected={isSelected(file.hash)}
                 showControls={false}
-                onToggleSelect={() =>
-                  setSelected((prev) => ({ ...prev, [file.hash]: !prev[file.hash] }))
-                }
-                onOpen={() => setPreviewIndex(idx)}
+                onToggleSelect={() => toggle(file.hash)}
+                onOpen={() => count > 0 ? toggle(file.hash) : setPreviewIndex(idx)}
                 onMenu={(event) => {
                   event.preventDefault();
                   setMenu({ hash: file.hash, x: event.clientX, y: event.clientY });
@@ -221,11 +236,50 @@ export function FileGrid({
       )}
 
       <BulkActionBar
-        selectedFiles={selectedFiles}
-        currentFolder={currentFolder}
-        isFolderView={isFolderView}
-        onClear={() => setSelected({})}
+        inTrash={params.get("view") === "trash"}
+        currentFolder={params.get("view") === "folder" ? (params.get("path") ?? undefined) : undefined}
+        allHashes={allHashes}
+        onTrash={async (hashes) => {
+          const next = await bulkTrashAction(hashes);
+          await setIndex(next);
+        }}
+        onDelete={async (hashes) => {
+          if (!confirm(`Permanently delete ${hashes.length} file(s)? This cannot be undone.`)) return;
+          const next = await bulkDeleteAction(hashes);
+          await setIndex(next);
+        }}
+        onRestore={async (hashes) => {
+          const next = await bulkRestoreAction(hashes);
+          await setIndex(next);
+        }}
+        onMoveToFolder={(hashes) => setBulkMovePicker(hashes)}
+        onRemoveFromFolder={async (hashes) => {
+          const folder = params.get("path") ?? "/";
+          const next = await removeFromFolderAction(hashes, folder);
+          await setIndex(next);
+        }}
+        onStar={async (hashes) => {
+          const next = await bulkStarAction(hashes);
+          await setIndex(next);
+        }}
       />
+
+      {bulkMovePicker && indexData && (
+        <MoveDialog
+          open
+          itemName={`${bulkMovePicker.length} items`}
+          itemType="file"
+          currentLocation="/"
+          index={indexData}
+          onConfirm={async (folderPath: string) => {
+            const next = await bulkMoveToFolderAction(bulkMovePicker, folderPath);
+            await setIndex(next);
+            clearSelection();
+            setBulkMovePicker(null);
+          }}
+          onCancel={() => setBulkMovePicker(null)}
+        />
+      )}
 
       {previewIndex !== null && previewFiles.length > 0 && (
         <PreviewModal

@@ -105,8 +105,14 @@ export function PreviewModal({
         }
 
         if (!res.ok) {
-          const errData = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-          throw new Error((errData as { error?: string }).error ?? `Failed: ${res.status}`);
+          let errMsg = `Server error ${res.status}`;
+          try {
+            const json = (await res.json()) as { error?: string };
+            if (json.error) errMsg = json.error;
+          } catch {
+            // ignore
+          }
+          throw new Error(errMsg);
         }
 
         const buffer = await res.arrayBuffer();
@@ -242,6 +248,38 @@ export function PreviewModal({
   const content = useMemo(() => {
     if (!file || !objectUrl) return null;
 
+    // Add this check BEFORE the image check at the top of useMemo:
+    const isOffice = [
+      "pptx", "ppt", "docx", "doc", "xlsx", "xls"
+    ].includes(file.name.split(".").pop()?.toLowerCase() ?? "") ||
+      mimeType.includes("officedocument") ||
+      mimeType.includes("msword") ||
+      mimeType.includes("ms-excel") ||
+      mimeType.includes("ms-powerpoint");
+
+    if (isOffice && objectUrl) {
+      return (
+        <div className="flex flex-col items-center gap-4 rounded-2xl bg-gray-900 p-12 text-white text-center max-w-sm">
+          <FileIcon size={56} className="text-blue-400" />
+          <div>
+            <p className="font-semibold text-base">{file.name}</p>
+            <p className="text-sm text-gray-400 mt-1">{formatBytes(file.size)}</p>
+          </div>
+          <p className="text-xs text-gray-500 max-w-xs leading-relaxed">
+            Office files cannot be previewed in the browser.
+            Download to open in your Office app.
+          </p>
+          <a
+            href={objectUrl}
+            download={file.name}
+            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500"
+          >
+            Download {file.name.split(".").pop()?.toUpperCase()}
+          </a>
+        </div>
+      );
+    }
+
     if (mimeType.startsWith("image/")) {
       return (
         <img
@@ -297,35 +335,6 @@ export function PreviewModal({
             </a>
           </div>
         </object>
-      );
-    }
-
-    // pptx, docx, xlsx — can't render inline, offer download
-    const isOffice = [
-      "pptx","ppt","docx","doc","xlsx","xls"
-    ].includes(file.name.split(".").pop()?.toLowerCase() ?? "") ||
-      mimeType.includes("officedocument") ||
-      mimeType.includes("msword") ||
-      mimeType.includes("ms-excel") ||
-      mimeType.includes("ms-powerpoint");
-
-    if (isOffice && objectUrl) {
-      return (
-        <div className="flex flex-col items-center gap-4 rounded-2xl bg-gray-900 p-12 text-white text-center">
-          <FileIcon size={64} className="text-blue-400" />
-          <p className="font-medium">{file.name}</p>
-          <p className="text-sm text-gray-400">{formatBytes(file.size)}</p>
-          <p className="text-xs text-gray-500 max-w-xs">
-            Office files cannot be previewed in the browser. Download to open in your Office app.
-          </p>
-          <a
-            href={objectUrl}
-            download={file.name}
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500"
-          >
-            Download {file.name.split(".").pop()?.toUpperCase()}
-          </a>
-        </div>
       );
     }
 
@@ -428,14 +437,15 @@ export function PreviewModal({
         {loading ? (
           <div className="h-64 w-64 animate-pulse rounded-xl bg-gray-700" />
         ) : isCorrupted ? (
-          <div className="flex max-w-sm flex-col items-center gap-5 rounded-2xl bg-gray-900 border border-amber-800/40 px-10 py-12 text-center">
+          <div className="flex max-w-sm flex-col items-center gap-5 rounded-2xl border border-amber-800/40 bg-gray-900 px-10 py-12 text-center">
             <div className="rounded-full bg-amber-500/10 p-4">
               <AlertTriangleIcon className="h-10 w-10 text-amber-400" />
             </div>
             <div>
               <p className="text-base font-semibold text-amber-300">File is corrupted</p>
-              <p className="mt-2 text-sm text-gray-400 leading-relaxed">
-                This file was uploaded before a bug fix and cannot be recovered. Delete it and re-upload the original file.
+              <p className="mt-2 text-sm leading-relaxed text-gray-400">
+                This file was uploaded before a bug fix and cannot be recovered.
+                Delete it and re-upload the original file.
               </p>
             </div>
             <div className="flex gap-3">

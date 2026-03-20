@@ -12,6 +12,7 @@ import {
 } from "react";
 import { useSession } from "next-auth/react";
 import type { GitStoreIndex } from "@/types";
+import { purgeExpiredTrashAction } from "@/app/dashboard/actions";
 import {
   clearAllCaches,
   loadIndex,
@@ -78,6 +79,11 @@ export function IndexProvider({ children }: { children: ReactNode }) {
       }
 
       await setIndex(data.index);
+
+      // Trigger auto-purge asynchronously (fire-and-forget)
+      void purgeExpiredTrashAction().then((next) => {
+        if (next) setIndexState(next);
+      }).catch(() => {});
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load index");
     } finally {
