@@ -49,7 +49,7 @@ export function FileGrid({
   currentFolder?: string;
   isFolderView: boolean;
 }) {
-  const { setIndex, index: indexData } = useIndex();
+  const { setIndex, index: indexData, refresh } = useIndex();
   const { uploadFilesToFolder } = useUpload();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -242,20 +242,26 @@ export function FileGrid({
         onTrash={async (hashes) => {
           const next = await bulkTrashAction(hashes);
           await setIndex(next);
+          // Force a refresh so the file visually disappears from non-trash views
+          await refresh(true);
         }}
         onDelete={async (hashes) => {
-          if (!confirm(`Permanently delete ${hashes.length} file(s)? This cannot be undone.`)) return;
+          // confirm() is called inside BulkActionBar before onDelete is invoked
           const next = await bulkDeleteAction(hashes);
           await setIndex(next);
+          await refresh(true);
         }}
         onRestore={async (hashes) => {
           const next = await bulkRestoreAction(hashes);
           await setIndex(next);
+          await refresh(true);
         }}
-        onMoveToFolder={(hashes) => setBulkMovePicker(hashes)}
+        onMoveToFolder={(hashes) => {
+          setBulkMovePicker(hashes);
+        }}
         onRemoveFromFolder={async (hashes) => {
-          const folder = params.get("path") ?? "/";
-          const next = await removeFromFolderAction(hashes, folder);
+          const folderPath = params.get("path") ?? "/";
+          const next = await removeFromFolderAction(hashes, folderPath);
           await setIndex(next);
         }}
         onStar={async (hashes) => {

@@ -42,29 +42,45 @@ export async function getFileHash(file: File): Promise<string> {
   return full.slice(0, 12); // first 12 hex chars = 6 bytes
 }
 
+/**
+ * Creates a unique index key by combining content hash with filename.
+ * This allows the same file content to be stored multiple times under
+ * different names, each as a separate record.
+ */
+async function generateRecordKey(
+  contentHash: string,
+  fileName: string
+): Promise<string> {
+  const input = `${contentHash}:${fileName}`;
+  const bytes = new TextEncoder().encode(input);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", bytes);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 12);
+}
+
 // ─── Deduplication ──────────────────────────────────────────────────────
 
 /**
  * Returns true if the hash already exists in any available cache layer,
  * falling back from L1 (in-memory) → L2 (IndexedDB) → server.
- * Must be awaited — use `if (await isDuplicate(hash))` at the call site.
+ * Must be awaited — use `if (await isDuplicateByHashAndName(recordKey))` at the call site.
  */
-export async function isDuplicate(hash: string): Promise<boolean> {
+export async function isDuplicateByHashAndName(recordKey: string): Promise<boolean> {
   // L1 — fastest, available immediately after first load
   const l1 = l1GetIndex();
-  if (l1) return hash in l1.files;
+  if (l1) return recordKey in l1.files;
 
   // L2 — IndexedDB, survives page refresh
   const { l2GetIndex } = await import("./cache");
   const l2 = await l2GetIndex();
-  if (l2) return hash in l2.files;
+  if (l2) return recordKey in l2.files;
 
   // Neither cache available — check server as last resort
   try {
-    const res = await fetch(`/api/files?hash=${encodeURIComponent(hash)}`);
+    const res = await fetch(`/api/files?hash=${encodeURIComponent(recordKey)}`);
     if (res.ok) {
       const data = (await res.json()) as { files?: Array<{ hash: string }> };
-      return (data.files ?? []).some((f) => f.hash === hash);
+      return (data.files ?? []).some((f) => f.hash === recordKey);
     }
   } catch {
     // Network error — assume not duplicate, let upload proceed
@@ -372,6 +388,7 @@ export interface UploadPipelineOptions {
 
 export interface UploadPipelineResult {
   hash: string;
+  contentHash?: string;
   path: string;
   nodeName: string;
   nodeRepo: string;
@@ -417,13 +434,15 @@ export async function runUploadPipeline(
   // Step 1: Hash
   reportProgress("hashing");
   const hash = await getFileHash(file);
+  const recordKey = await generateRecordKey(hash, file.name);
 
   // Step 2: Dedup check
   reportProgress("dedup");
-  if (await isDuplicate(hash)) {
+  if (await isDuplicateByHashAndName(recordKey)) {
     reportProgress("done", 1, 1);
     return {
-      hash,
+      hash: recordKey,
+      contentHash: hash,
       path: "",
       nodeName: nodeName ?? "other",
       nodeRepo: nodeRepo ?? "gitstore-other",
@@ -479,7 +498,7 @@ export async function runUploadPipeline(
     .replace(/[^a-zA-Z0-9._-]/g, "_")
     .replace(/__+/g, "_")
     .replace(/^_+|_+$/g, "") || "file";
-  const basePath = `${year}/${month}/${hash}_${safeName}`;
+  const basePath = `${year}/${month}/${recordKey}_${safeName}`;
 
   // Generate a per-file AES-256-GCM key for client-side encryption
   const fileKey = ENCRYPTION_ENABLED ? await generateFileKey() : undefined;
@@ -500,7 +519,8 @@ export async function runUploadPipeline(
   const encryptionKey = fileKey ? await exportKeyToBase64(fileKey) : undefined;
 
   return {
-    hash,
+    hash: recordKey,
+    contentHash: hash,
     path: basePath,
     nodeName: resolvedNode,
     nodeRepo: resolvedRepo,

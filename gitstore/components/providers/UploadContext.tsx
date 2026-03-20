@@ -163,6 +163,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
         // Build the full record — folders and thumbnail in a single write
         const record: FileRecord = {
           hash: result.hash,
+          contentHash: result.contentHash,
           name: file.name,
           node: result.nodeName,
           path: result.path,

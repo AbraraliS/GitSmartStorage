@@ -290,7 +290,7 @@ export async function bulkDeleteAction(
   for (const hash of hashes) {
     delete index.files[hash];
     // Remove from search index
-    for (const token of Object.keys(index.search_index)) {
+    for (const token of Object.keys(index.search_index ?? {})) {
       index.search_index[token] = (index.search_index[token] ?? []).filter(
         (h) => h !== hash
       );

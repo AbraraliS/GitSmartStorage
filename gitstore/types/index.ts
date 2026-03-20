@@ -35,6 +35,8 @@ export interface RepoShard {
 export interface FileRecord {
   /** First 6 chars of SHA-256 hash — used as primary key */
   hash: string;
+  /** Original content hash. Helpful when hash becomes a derived recordKey. */
+  contentHash?: string;
   name: string;
   /** Target data node id */
   node: string;
