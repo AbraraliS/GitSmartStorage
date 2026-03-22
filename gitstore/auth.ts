@@ -9,7 +9,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       authorization: {
         params: {
           // Request repo + user scopes so we can create repos and read/write files
-          scope: "repo user read:user user:email",
+          scope: "repo user read:user user:email delete_repo",
           // Force account chooser on re-login so users can switch GitHub accounts cleanly.
           login: "",
           // Best-effort account selection prompt for providers that support OIDC-style prompt.

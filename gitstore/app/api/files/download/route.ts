@@ -117,9 +117,35 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ error: `Invalid chunk data at index ${i}` }, { status: 500 });
       }
 
-      // GitHub stores content as base64 — strip newlines GitHub adds and decode
+      let bytes: Uint8Array;
+
       const rawBase64 = data.content.replace(/\n/g, "").replace(/\r/g, "");
-      const bytes = Uint8Array.from(Buffer.from(rawBase64, "base64"));
+
+      if (rawBase64.length === 0) {
+        // GitHub Contents API returns empty content for files > 1MB.
+        // Fall back to download_url which streams the raw file directly.
+        if (!data.download_url) {
+          return NextResponse.json(
+            { error: `No download_url for chunk ${i}` },
+            { status: 500 }
+          );
+        }
+        const dlRes = await fetch(data.download_url, {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        });
+        if (!dlRes.ok) {
+          return NextResponse.json(
+            { error: `Failed to fetch chunk ${i} from download_url: ${dlRes.status}` },
+            { status: 500 }
+          );
+        }
+        const arrayBuf = await dlRes.arrayBuffer();
+        bytes = new Uint8Array(arrayBuf);
+      } else {
+        bytes = Uint8Array.from(Buffer.from(rawBase64, "base64"));
+      }
 
       if (hasEncryption && record.encryptionKey) {
         // Use per-chunk IV, fall back to first IV if not enough IVs stored
@@ -143,17 +169,6 @@ export async function GET(req: NextRequest) {
         }
       } else {
         // No encryption — raw bytes directly from GitHub
-        // Guard: if bytes look like ASCII base64 text, this is a double-encoded old file
-        const seemsDoubleEncoded = bytes.length > 0 && bytes.every(
-          (b) => (b >= 65 && b <= 90) || (b >= 97 && b <= 122) ||
-                 (b >= 48 && b <= 57) || b === 43 || b === 47 || b === 61
-        );
-        if (seemsDoubleEncoded) {
-          return NextResponse.json(
-            { error: "This file was uploaded with a bug that corrupted it. Please delete and re-upload." },
-            { status: 422 }
-          );
-        }
         resultChunks.push(bytes);
         console.log(`[download] chunk ${i}: raw=${bytes.length} (no encryption)`);
       }

@@ -13,7 +13,7 @@ import type { UploadChunk, UploadProgress } from "@/types";
 import { l1GetIndex } from "./cache";
 import { classifyFile, ensureNodeExists, type NodeId } from "./nodes";
 
-export const CHUNK_SIZE = 4 * 1024 * 1024; // 4 MB
+export const CHUNK_SIZE = 50 * 1024 * 1024; // 50 MB
 
 // Text MIME types that benefit from compression
 const COMPRESSIBLE_TYPES = [
@@ -194,7 +194,54 @@ export async function prepareChunks(
 
 // ─── Upload batching ──────────────────────────────────────────────────────
 
-const BATCH_SIZE = 4;
+const BATCH_SIZE = 2;
+const MAX_RETRIES = 3;
+
+async function uploadChunkWithRetry(
+  chunk: UploadChunk,
+  nodeRepo: string,
+  attempt = 0
+): Promise<void> {
+  try {
+    // ADD THIS LINE — random 0–300ms jitter so parallel chunks don't collide
+    await new Promise((r) => setTimeout(r, Math.random() * 300));
+
+    const res = await fetch("/api/upload/chunk", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        repo: nodeRepo,
+        path: chunk.path,
+        content: chunk.data,
+      }),
+    });
+
+    if (!res.ok) {
+      // 422 = file already exists at this path = chunk already uploaded = success
+      if (res.status === 422) return;
+
+      const err = await res.json().catch(() => ({ error: "Unknown" }));
+      const message = (err as { error?: string }).error ?? "Unknown error";
+
+      // 409 Conflict or 404 = GitHub tree SHA race condition — retry
+      if ((res.status === 409 || res.status === 404) && attempt < MAX_RETRIES) {
+        const delay = Math.pow(2, attempt) * 1000; // 1000ms, 2000ms, 4000ms
+        await new Promise((r) => setTimeout(r, delay));
+        return uploadChunkWithRetry(chunk, nodeRepo, attempt + 1);
+      }
+
+      throw new Error(`Chunk upload failed (${chunk.path}): ${message}`);
+    }
+  } catch (err) {
+    // Network error — retry
+    if (attempt < MAX_RETRIES && err instanceof TypeError) {
+      const delay = Math.pow(2, attempt) * 1000;
+      await new Promise((r) => setTimeout(r, delay));
+      return uploadChunkWithRetry(chunk, nodeRepo, attempt + 1);
+    }
+    throw err;
+  }
+}
 
 export async function uploadChunksBatched(
   chunks: UploadChunk[],
@@ -208,25 +255,7 @@ export async function uploadChunksBatched(
 
     await Promise.all(
       batch.map(async (chunk) => {
-        // chunk.data is already a single-encoded base64 string from prepareChunks
-        const res = await fetch("/api/upload/chunk", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            repo: nodeRepo,
-            path: chunk.path,
-            content: chunk.data,
-            sha: chunk.sha,
-          }),
-        });
-
-        if (!res.ok) {
-          const error = await res.json().catch(() => ({ error: "Unknown error" })) as { error: string };
-          throw new Error(
-            `Chunk upload failed (${chunk.path}): ${error.error}`
-          );
-        }
-
+        await uploadChunkWithRetry(chunk, nodeRepo);
         uploaded++;
         onProgress?.(uploaded);
       })

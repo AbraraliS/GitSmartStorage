@@ -205,6 +205,24 @@ export default function SettingsPage() {
         </p>
       </section>
 
+      {/* ─── Danger Zone ─── */}
+      <section className="bg-red-950/20 border border-red-900/40 rounded-xl p-6 space-y-4">
+        <div>
+          <h2 className="font-semibold text-red-400">Danger Zone</h2>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Irreversible actions that permanently delete your data.
+          </p>
+        </div>
+        <div>
+          <a
+            href="/settings/danger"
+            className="inline-flex items-center px-4 py-2 bg-red-900/30 hover:bg-red-800/50 border border-red-800/50 text-red-200 font-medium rounded-lg text-sm transition-colors"
+          >
+            Enter Danger Zone &rarr;
+          </a>
+        </div>
+      </section>
+
       {/* ─── Architecture note ─── */}
       <section className="bg-gray-900/50 border border-gray-800/50 rounded-xl p-5">
         <h2 className="font-semibold text-gray-300 mb-3 text-sm">Architecture</h2>

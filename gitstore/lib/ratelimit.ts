@@ -32,6 +32,7 @@ function getRedis(): Redis {
 
 // Singleton map so we only construct each limiter once per process.
 const limiters = new Map<string, Ratelimit>();
+let redisWarningLogged = false;
 
 function getLimiter(key: string, tokens: number, window: `${number} s`): Ratelimit {
   if (!limiters.has(key)) {
@@ -48,13 +49,14 @@ function getLimiter(key: string, tokens: number, window: `${number} s`): Ratelim
   return limiters.get(key)!;
 }
 
-export type LimiterKey = "upload" | "delete" | "sync" | "default";
+export type LimiterKey = "upload" | "delete" | "sync" | "default" | "wipe";
 
 const LIMITS: Record<LimiterKey, { tokens: number; window: `${number} s` }> = {
   upload:  { tokens: 10,  window: "60 s" },
   delete:  { tokens: 20,  window: "60 s" },
   sync:    { tokens:  5,  window: "60 s" },
   default: { tokens: 60,  window: "60 s" },
+  wipe:    { tokens:  1,  window: "3600 s" },
 };
 
 /**
@@ -78,10 +80,11 @@ export async function checkRateLimit(
       remaining: result.remaining,
       reset: result.reset,
     };
-  } catch (err) {
-    // If Redis is unavailable (e.g. missing env vars in dev), allow the request
-    // but log so operators know rate-limiting is non-functional.
-    console.warn("[ratelimit] Redis unavailable — rate limiting disabled:", err);
+  } catch {
+    if (!redisWarningLogged) {
+      console.warn("[ratelimit] Redis not configured — rate limiting disabled (set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN to enable)");
+      redisWarningLogged = true;
+    }
     return { limited: false };
   }
 }

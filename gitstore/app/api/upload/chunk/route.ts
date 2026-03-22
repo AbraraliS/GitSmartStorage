@@ -71,12 +71,27 @@ export async function PUT(req: NextRequest) {
         await ensureRepo(octokit, login, repo);
         blobSha = await writeChunk(sha);
       } else if ((status === 409 || status === 422) && !sha) {
-        // If file already exists, retry with its current SHA.
-        const existing = await octokit.repos.getContent({ owner: login, repo, path });
-        if (!Array.isArray(existing.data) && existing.data.type === "file") {
-          blobSha = await writeChunk(existing.data.sha);
-        } else {
-          throw err;
+        // Try to get the existing file's SHA in case it already exists
+        try {
+          const existing = await octokit.repos.getContent({ owner: login, repo, path });
+          if (!Array.isArray(existing.data) && existing.data.type === "file") {
+            // File exists — overwrite it with correct SHA
+            blobSha = await writeChunk(existing.data.sha);
+          } else {
+            // Unexpected response shape — retry from scratch after delay
+            await new Promise((r) => setTimeout(r, 2000));
+            blobSha = await writeChunk(undefined);
+          }
+        } catch (getErr: unknown) {
+          const getStat = (getErr as { status?: number })?.status;
+          if (getStat === 404) {
+            // File doesn't exist yet — repo may still be initializing
+            // Wait and retry the original write without a SHA
+            await new Promise((r) => setTimeout(r, 3000));
+            blobSha = await writeChunk(undefined);
+          } else {
+            throw err; // unexpected error — surface it
+          }
         }
       } else {
         throw err;

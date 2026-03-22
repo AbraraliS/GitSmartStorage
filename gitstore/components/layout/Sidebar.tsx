@@ -20,6 +20,7 @@ import {
   FolderPlusIcon,
   PencilIcon,
   PlusIcon,
+  SettingsIcon,
   StarIcon,
   Trash2Icon,
   VideoIcon,
@@ -418,13 +419,22 @@ export function Sidebar() {
           </section>
         </div>
 
-        <div className="mt-4 space-y-1 px-2">
-          <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
-            <span>{totalUsedGb.toFixed(2)} GB used</span>
-            <span>250 GB</span>
-          </div>
-          <div className="h-1.5 rounded-full bg-gray-200 dark:bg-gray-800">
-            <div className="h-full rounded-full bg-blue-500" style={{ width: `${usedPct}%` }} />
+        <div className="mt-4 space-y-3 px-2">
+          <Link
+            href="/settings/danger"
+            className="flex items-center gap-2 rounded-xl px-3 py-2 text-sm text-gray-600 transition hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
+          >
+            <SettingsIcon className="h-4 w-4" />
+            Settings
+          </Link>
+          <div className="space-y-1">
+            <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
+              <span>{totalUsedGb.toFixed(2)} GB used</span>
+              <span>250 GB</span>
+            </div>
+            <div className="h-1.5 rounded-full bg-gray-200 dark:bg-gray-800">
+              <div className="h-full rounded-full bg-blue-500" style={{ width: `${usedPct}%` }} />
+            </div>
           </div>
         </div>
       </aside>
@@ -572,7 +582,7 @@ export function Sidebar() {
         />
       )}
 
-      <nav className="fixed inset-x-0 bottom-0 z-40 grid h-14 grid-cols-4 border-t border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900 md:hidden">
+      <nav className="fixed inset-x-0 bottom-0 z-40 grid h-14 grid-cols-5 border-t border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900 md:hidden">
         <Link href="/dashboard?view=folder" className="flex flex-col items-center justify-center text-xs text-gray-600 dark:text-gray-300">
           <HardDriveIcon className="h-4 w-4" />
           Files
@@ -588,6 +598,10 @@ export function Sidebar() {
         <Link href="/dashboard?view=trash" className="flex flex-col items-center justify-center text-xs text-gray-600 dark:text-gray-300">
           <Trash2Icon className="h-4 w-4" />
           Trash
+        </Link>
+        <Link href="/settings/danger" className="flex flex-col items-center justify-center text-xs text-gray-600 dark:text-gray-300">
+          <SettingsIcon className="h-4 w-4" />
+          Settings
         </Link>
       </nav>
     </>
