@@ -23,6 +23,7 @@
 14. [Environment Variables](#14-environment-variables)
 15. [Running Locally](#15-running-locally)
 16. [Known Limitations & Notes](#16-known-limitations--notes)
+17. [License](#license)
 
 ---
 
@@ -275,7 +276,7 @@ File selected
 7. updateCacheAfterWrite()  →  L1 + L2 updated
 ```
 
-**Encryption detail:** Each file gets a unique AES-256-GCM key generated via `crypto.subtle.generateKey`. The key is exported as base64 and stored in `FileRecord.encryptionKey` inside `index.json` (which is itself in the user's private repo). The 12-byte GCM IV is stored in `FileRecord.iv`.
+**Encryption detail:** Each file gets a unique AES-256-GCM key generated via `crypto.subtle.generateKey`. The key is exported as base64 and stored in `FileRecord.encryptionKey` inside `index.json[...]
 
 ---
 
@@ -466,3 +467,29 @@ npx wrangler deploy
 | **Rate limiting without Redis** | `UPSTASH_REDIS_*` vars are optional; without them, rate limiting is silently disabled (logged as a warning). |
 | **Middleware deprecation** | Next.js 16 renamed `middleware.ts` to `proxy.ts`. A deprecation warning appears at startup but functionality is unaffected until a future version removes support. |
 | **Mobile dependencies** | The `mobile/` subproject has its own `package.json` and must be installed separately. Its React Native deps are not visible to the web project's TypeScript server. |
+
+---
+
+## License
+
+MIT License
+
+Copyright (c) 2026 AbraraliS
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
