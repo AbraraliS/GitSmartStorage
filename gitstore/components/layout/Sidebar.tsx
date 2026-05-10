@@ -5,19 +5,21 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArchiveIcon,
+  BookOpenIcon,
   ChevronDownIcon,
   ChevronRightIcon,
   ClockIcon,
   CodeIcon,
-  FileIcon,
   FileTextIcon,
   FolderIcon,
-  HardDriveIcon,
-  ImageIcon,
-  MusicIcon,
-  MoreVerticalIcon,
   FolderInputIcon,
   FolderPlusIcon,
+  HardDriveIcon,
+  ImageIcon,
+  LockIcon,
+  MoreVerticalIcon,
+  MusicIcon,
+  PaletteIcon,
   PencilIcon,
   PlusIcon,
   SettingsIcon,
@@ -35,22 +37,26 @@ import {
 import { NewButton } from "@/components/layout/NewButton";
 import { useIndex } from "@/components/providers/IndexContext";
 import { useUpload } from "@/components/providers/UploadContext";
-import { getFolderStats, getSubFoldersOf } from "@/lib/index";
+import { getFolderStats } from "@/lib/index";
 import { buildFileTree } from "@/lib/filesystem";
-import { NODE_DEFINITIONS } from "@/lib/nodes";
+import { getActiveSmartCollections } from "@/lib/smart";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { RenameDialog } from "@/components/ui/RenameDialog";
 import { MoveDialog } from "@/components/ui/MoveDialog";
 
-const ICONS: Record<string, ComponentType<{ className?: string }>> = {
+const SMART_ICONS: Record<string, ComponentType<{ className?: string }>> = {
   ImageIcon,
   VideoIcon,
   MusicIcon,
   FileTextIcon,
+  BookOpenIcon,
   CodeIcon,
-  FileIcon,
   ArchiveIcon,
-  FolderIcon,
+  PaletteIcon,
+  ClockIcon,
+  StarIcon,
+  HardDriveIcon,
+  LockIcon,
 };
 
 function NavItem({
@@ -105,14 +111,6 @@ function SectionHeader({
   );
 }
 
-function formatMonth(value: string): string {
-  const [year, month] = value.split("-");
-  if (!year || !month) return value;
-  return new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" }).format(
-    new Date(Number(year), Number(month) - 1, 1)
-  );
-}
-
 export function Sidebar() {
   const { index, loading, setIndex } = useIndex();
   const { triggerUpload } = useUpload();
@@ -128,13 +126,13 @@ export function Sidebar() {
   const [deleteTarget, setDeleteTarget] = useState<{ path: string; name: string } | null>(null);
 
   const view = params.get("view") ?? "";
-  const node = params.get("node") ?? "";
   const activePath = params.get("path") ?? "";
   const smartType = params.get("type") ?? "";
-  const smartValue = params.get("value") ?? "";
 
-  const nodes = Object.values(index?.nodes ?? {});
-  const totalUsedGb = Object.values(index?.nodes ?? {}).reduce((sum, item) => sum + item.size_mb / 1024, 0);
+  const totalUsedGb = Object.values(index?.nodes ?? {}).reduce(
+    (sum, item) => sum + item.size_mb / 1024,
+    0
+  );
   const usedPct = Math.min(100, (totalUsedGb / 250) * 100);
 
   const safeIndex = useMemo(
@@ -155,8 +153,6 @@ export function Sidebar() {
   const fileTree = useMemo(() => buildFileTree(safeIndex), [safeIndex]);
 
   const rootFolders = useMemo(() => {
-    // Use buildFileTree to derive the complete folder hierarchy
-    // (includes both explicit folders and those derived from file paths)
     return fileTree.rootChildren
       .map((p) => fileTree.nodes.get(p))
       .filter((n) => n?.type === "folder")
@@ -170,40 +166,17 @@ export function Sidebar() {
       }));
   }, [fileTree]);
 
-  const nodeCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const file of Object.values(index?.files ?? {})) {
-      if (file.trashed) continue;
-      counts[file.node] = (counts[file.node] ?? 0) + 1;
-    }
-    return counts;
-  }, [index]);
+  // Smart collections with live counts — single O(F) pass
+  const smartCollections = useMemo(
+    () => getActiveSmartCollections(safeIndex),
+    [safeIndex]
+  );
 
-  const months = useMemo(() => {
-    const values = new Set<string>();
-    for (const file of Object.values(index?.files ?? {})) {
-      if (file.trashed) continue;
-      values.add(file.created.slice(0, 7));
-    }
-    return Array.from(values).sort().reverse();
-  }, [index]);
-
-  const tags = useMemo(() => {
-    const values = new Set<string>();
-    for (const file of Object.values(index?.files ?? {})) {
-      if (file.trashed) continue;
-      for (const tag of file.tags) values.add(tag);
-    }
-    return Array.from(values).sort((a, b) => a.localeCompare(b));
-  }, [index]);
+  const totalFiles = Object.values(safeIndex.files).filter((f) => !f.trashed).length;
 
   useEffect(() => {
     const raw = window.localStorage.getItem("gitstore:sidebar-collapsed");
-    if (!raw) {
-      setCollapseHydrated(true);
-      return;
-    }
-
+    if (!raw) { setCollapseHydrated(true); return; }
     try {
       setCollapsed(JSON.parse(raw) as Record<string, boolean>);
     } catch {
@@ -229,9 +202,8 @@ export function Sidebar() {
   };
 
   const sectionCollapsed = {
-    defaults: collapsed.defaults ?? false,
-    folders: collapsed.folders ?? false,
     smart: collapsed.smart ?? false,
+    folders: collapsed.folders ?? false,
   };
 
   const openFolderMenuAt = (folderPath: string, x: number, y: number) => {
@@ -248,7 +220,6 @@ export function Sidebar() {
       const stats = getFolderStats(safeIndex, folder.path);
       const itemKey = `folder:${folder.path}`;
       const isCollapsed = collapsed[itemKey] ?? false;
-      // Use filesystem tree for child lookups (picks up auto-derived folders)
       const folderNode = fileTree.nodes.get(folder.path);
       const subfolderPaths = folderNode?.type === "folder"
         ? folderNode.children.filter((c) => fileTree.nodes.get(c)?.type === "folder")
@@ -269,7 +240,7 @@ export function Sidebar() {
                 : "text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
             }`}
             style={{ marginLeft: `${depth * 14}px` }}
-          onContextMenu={(event) => {
+            onContextMenu={(event) => {
               event.preventDefault();
               setMenu({ path: folder.path, x: event.clientX, y: event.clientY });
             }}
@@ -322,6 +293,7 @@ export function Sidebar() {
       <aside className="hidden h-screen w-72 flex-shrink-0 border-r border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900 md:flex md:flex-col">
         <div className="mb-4 px-2">
           <p className="text-xl font-bold tracking-tight text-gray-900 dark:text-gray-100">GitStore</p>
+          <p className="text-xs text-gray-500 mt-0.5">{totalFiles} files</p>
         </div>
 
         <div className="mb-4">
@@ -329,126 +301,107 @@ export function Sidebar() {
         </div>
 
         <nav className="space-y-1">
-          <NavItem href="/dashboard?view=folder" label="My Files" icon={HardDriveIcon} active={!node && (!view || view === "folder")} />
-          <NavItem href="/dashboard?view=recent" label="Recent" icon={ClockIcon} active={view === "recent"} />
-          <NavItem href="/dashboard?view=trash" label="Trash" icon={Trash2Icon} active={view === "trash"} />
+          <NavItem
+            href="/dashboard"
+            label="My Files"
+            icon={HardDriveIcon}
+            active={!view || (view === "folder" && !activePath)}
+          />
+          <NavItem
+            href="/dashboard?view=trash"
+            label="Trash"
+            icon={Trash2Icon}
+            active={view === "trash"}
+          />
         </nav>
 
         <div className="my-4 border-t border-gray-200 dark:border-gray-800" />
 
         <div className="flex-1 space-y-4 overflow-y-auto pr-1">
+
+          {/* ── Smart Collections ─────────────────────────────────────────── */}
           <section className="space-y-2">
-            <SectionHeader title="Default" collapsed={sectionCollapsed.defaults} onToggle={() => toggleCollapsed("defaults")} />
-            {!sectionCollapsed.defaults && (
-              <div className="space-y-1">
+            <SectionHeader
+              title="Smart"
+              collapsed={sectionCollapsed.smart}
+              onToggle={() => toggleCollapsed("smart")}
+            />
+            {!sectionCollapsed.smart && (
+              <div className="space-y-0.5">
                 {loading
-                  ? ["w-32", "w-28", "w-36"].map((width, indexKey) => (
-                      <div key={indexKey} className={`h-8 rounded-lg bg-gray-200 dark:bg-gray-800 ${width}`} />
+                  ? [80, 68, 74].map((w, i) => (
+                      <div key={i} className={`h-8 rounded-lg bg-gray-100 dark:bg-gray-800 animate-pulse`} style={{ width: w }} />
                     ))
-                  : nodes.map((entry) => {
-                      const def = NODE_DEFINITIONS[entry.id as keyof typeof NODE_DEFINITIONS] ?? NODE_DEFINITIONS.other;
-                      const Icon = ICONS[def.icon] ?? FolderIcon;
-                      const active = node === entry.id;
+                  : smartCollections.map((collection) => {
+                      const Icon = SMART_ICONS[collection.icon] ?? FolderIcon;
+                      const isActive =
+                        view === "smart" && smartType === collection.id;
                       return (
                         <button
-                          key={entry.id}
+                          key={collection.id}
                           type="button"
-                          onClick={() => router.push(`/dashboard?node=${entry.id}`)}
+                          onClick={() =>
+                            router.push(
+                              `/dashboard?view=smart&type=${collection.id}`
+                            )
+                          }
                           className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm transition ${
-                            active
+                            isActive
                               ? "bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
                               : "text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
                           }`}
                         >
                           <span className="flex items-center gap-2 truncate">
-                            <Icon className="h-4 w-4" />
-                            <span className="truncate">{def.label}</span>
+                            <Icon className="h-4 w-4 shrink-0" />
+                            <span className="truncate">{collection.label}</span>
                           </span>
                           <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] text-gray-500 dark:bg-gray-800 dark:text-gray-400">
-                            {nodeCounts[entry.id] ?? 0}
+                            {collection.count}
                           </span>
                         </button>
                       );
                     })}
+                {!loading && smartCollections.length === 0 && (
+                  <p className="px-3 py-2 text-xs text-gray-400">
+                    Upload files to see categories
+                  </p>
+                )}
               </div>
             )}
           </section>
 
+          {/* ── My Folders ────────────────────────────────────────────────── */}
           <section className="space-y-2">
             <SectionHeader
               title="My Folders"
               collapsed={sectionCollapsed.folders}
               onToggle={() => toggleCollapsed("folders")}
               extra={
-            <button
-              type="button"
-              className="rounded-lg p-1 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
-              onClick={() => {
-                window.dispatchEvent(new Event("gitstore:new-folder"));
-              }}
-              aria-label="Create folder"
-            >
-              <PlusIcon className="h-4 w-4" />
-            </button>
-          }
-            />
-            {!sectionCollapsed.folders && <div className="space-y-1">{renderFolderTree(rootFolders, 0)}</div>}
-          </section>
-
-          <section className="space-y-2">
-            <SectionHeader title="Smart" collapsed={sectionCollapsed.smart} onToggle={() => toggleCollapsed("smart")} />
-            {!sectionCollapsed.smart && (
-              <div className="space-y-1">
                 <button
                   type="button"
-                  onClick={() => router.push("/dashboard?view=smart&type=starred&value=1")}
-                  className={`flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm ${
-                    view === "smart" && smartType === "starred"
-                      ? "bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
-                      : "text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
-                  }`}
+                  className="rounded-lg p-1 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
+                  onClick={() => window.dispatchEvent(new Event("gitstore:new-folder"))}
+                  aria-label="Create folder"
                 >
-                  <StarIcon className="h-4 w-4" />
-                  Starred
+                  <PlusIcon className="h-4 w-4" />
                 </button>
-                {months.map((month) => (
-                  <button
-                    key={month}
-                    type="button"
-                    onClick={() => router.push(`/dashboard?view=smart&type=month&value=${encodeURIComponent(month)}`)}
-                    className={`flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm ${
-                      view === "smart" && smartType === "month" && smartValue === month
-                        ? "bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
-                        : "text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
-                    }`}
-                  >
-                    <ClockIcon className="h-4 w-4" />
-                    <span className="truncate">{formatMonth(month)}</span>
-                  </button>
-                ))}
-                {tags.map((tag) => (
-                  <button
-                    key={tag}
-                    type="button"
-                    onClick={() => router.push(`/dashboard?view=smart&type=tag&value=${encodeURIComponent(tag)}`)}
-                    className={`flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm ${
-                      view === "smart" && smartType === "tag" && smartValue === tag
-                        ? "bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
-                        : "text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
-                    }`}
-                  >
-                    <span className="text-xs font-semibold text-gray-400">#</span>
-                    <span className="truncate">{tag}</span>
-                  </button>
-                ))}
+              }
+            />
+            {!sectionCollapsed.folders && (
+              <div className="space-y-1">
+                {rootFolders.length === 0 && !loading && (
+                  <p className="px-3 py-2 text-xs text-gray-400">No folders yet</p>
+                )}
+                {renderFolderTree(rootFolders, 0)}
               </div>
             )}
           </section>
+
         </div>
 
         <div className="mt-4 space-y-3 px-2">
           <Link
-            href="/settings/danger"
+            href="/settings"
             className="flex items-center gap-2 rounded-xl px-3 py-2 text-sm text-gray-600 transition hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
           >
             <SettingsIcon className="h-4 w-4" />
@@ -460,12 +413,13 @@ export function Sidebar() {
               <span>250 GB</span>
             </div>
             <div className="h-1.5 rounded-full bg-gray-200 dark:bg-gray-800">
-              <div className="h-full rounded-full bg-blue-500" style={{ width: `${usedPct}%` }} />
+              <div className="h-full rounded-full bg-blue-500 transition-all" style={{ width: `${usedPct}%` }} />
             </div>
           </div>
         </div>
       </aside>
 
+      {/* ── Folder context menu ─────────────────────────────────────────── */}
       {menu && (
         <div
           className="fixed z-[125] min-w-44 rounded-xl border border-gray-200 bg-white py-1 shadow-lg dark:border-gray-700 dark:bg-gray-900"
@@ -481,10 +435,7 @@ export function Sidebar() {
               setRenameTarget({ path, name });
             }}
           >
-            <span className="inline-flex items-center gap-2">
-              <PencilIcon className="h-4 w-4" />
-              Rename
-            </span>
+            <span className="inline-flex items-center gap-2"><PencilIcon className="h-4 w-4" />Rename</span>
           </button>
           <button
             type="button"
@@ -496,10 +447,7 @@ export function Sidebar() {
               setMoveTarget({ path, name });
             }}
           >
-            <span className="inline-flex items-center gap-2">
-              <FolderInputIcon className="h-4 w-4" />
-              Move to...
-            </span>
+            <span className="inline-flex items-center gap-2"><FolderInputIcon className="h-4 w-4" />Move to...</span>
           </button>
           <button
             type="button"
@@ -519,10 +467,7 @@ export function Sidebar() {
           <button
             type="button"
             className="block w-full px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800"
-            onClick={() => {
-              triggerUpload({ targetFolder: menu.path });
-              setMenu(null);
-            }}
+            onClick={() => { triggerUpload({ targetFolder: menu.path }); setMenu(null); }}
           >
             Add files
           </button>
@@ -541,7 +486,7 @@ export function Sidebar() {
         </div>
       )}
 
-      {/* ── Rename folder dialog ─────────────────────────────────────────── */}
+      {/* ── Rename dialog ─────────────────────────────────────────────────── */}
       {renameTarget && (
         <RenameDialog
           open
@@ -559,7 +504,7 @@ export function Sidebar() {
         />
       )}
 
-      {/* ── Move folder dialog ───────────────────────────────────────────── */}
+      {/* ── Move dialog ────────────────────────────────────────────────────── */}
       {moveTarget && index && (
         <MoveDialog
           open
@@ -589,7 +534,7 @@ export function Sidebar() {
         />
       )}
 
-      {/* ── Delete folder dialog ─────────────────────────────────────────── */}
+      {/* ── Delete dialog ─────────────────────────────────────────────────── */}
       {deleteTarget && (
         <ConfirmDialog
           open
@@ -609,24 +554,21 @@ export function Sidebar() {
         />
       )}
 
-      <nav className="fixed inset-x-0 bottom-0 z-40 grid h-14 grid-cols-5 border-t border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900 md:hidden">
-        <Link href="/dashboard?view=folder" className="flex flex-col items-center justify-center text-xs text-gray-600 dark:text-gray-300">
+      {/* ── Mobile bottom nav ──────────────────────────────────────────────── */}
+      <nav className="fixed inset-x-0 bottom-0 z-40 grid h-14 grid-cols-4 border-t border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900 md:hidden">
+        <Link href="/dashboard" className="flex flex-col items-center justify-center text-xs text-gray-600 dark:text-gray-300">
           <HardDriveIcon className="h-4 w-4" />
           Files
         </Link>
-        <Link href="/dashboard?view=recent" className="flex flex-col items-center justify-center text-xs text-gray-600 dark:text-gray-300">
+        <Link href="/dashboard?view=smart&type=recent" className="flex flex-col items-center justify-center text-xs text-gray-600 dark:text-gray-300">
           <ClockIcon className="h-4 w-4" />
           Recent
         </Link>
-        <Link href="/dashboard?view=smart&type=starred&value=1" className="flex flex-col items-center justify-center text-xs text-gray-600 dark:text-gray-300">
+        <Link href="/dashboard?view=smart&type=favorites" className="flex flex-col items-center justify-center text-xs text-gray-600 dark:text-gray-300">
           <StarIcon className="h-4 w-4" />
           Starred
         </Link>
-        <Link href="/dashboard?view=trash" className="flex flex-col items-center justify-center text-xs text-gray-600 dark:text-gray-300">
-          <Trash2Icon className="h-4 w-4" />
-          Trash
-        </Link>
-        <Link href="/settings/danger" className="flex flex-col items-center justify-center text-xs text-gray-600 dark:text-gray-300">
+        <Link href="/settings" className="flex flex-col items-center justify-center text-xs text-gray-600 dark:text-gray-300">
           <SettingsIcon className="h-4 w-4" />
           Settings
         </Link>

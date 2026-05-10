@@ -1,21 +1,69 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import { useSession } from "next-auth/react";
 import type { DataNode } from "@/types";
+import {
+  AlertTriangleIcon,
+  DatabaseIcon,
+  HardDriveIcon,
+  RefreshCwIcon,
+  ServerIcon,
+  ShieldIcon,
+  UserIcon,
+} from "lucide-react";
+
+interface QuickStatProps {
+  label: string;
+  value: string;
+  sub?: string;
+}
+
+function QuickStat({ label, value, sub }: QuickStatProps) {
+  return (
+    <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
+      <p className="text-xs font-medium uppercase tracking-wider text-gray-500">{label}</p>
+      <p className="mt-1.5 text-2xl font-bold text-gray-100">{value}</p>
+      {sub && <p className="mt-0.5 text-xs text-gray-500">{sub}</p>}
+    </div>
+  );
+}
+
+interface SettingsCardProps {
+  href: string;
+  title: string;
+  description: string;
+  icon: React.ComponentType<{ className?: string }>;
+  isDanger?: boolean;
+}
+
+function SettingsCard({ href, title, description, icon: Icon, isDanger }: SettingsCardProps) {
+  return (
+    <Link
+      href={href}
+      className={`group flex items-start gap-4 rounded-xl border p-5 transition ${
+        isDanger
+          ? "border-red-900/30 bg-red-950/10 hover:border-red-800/50 hover:bg-red-950/20"
+          : "border-gray-800 bg-gray-900 hover:border-gray-700 hover:bg-gray-800/60"
+      }`}
+    >
+      <div className={`rounded-lg p-2.5 ${
+        isDanger ? "bg-red-900/20" : "bg-gray-800"
+      }`}>
+        <Icon className={`h-5 w-5 ${isDanger ? "text-red-400" : "text-gray-400 group-hover:text-gray-200"}`} />
+      </div>
+      <div>
+        <p className={`font-semibold ${isDanger ? "text-red-300" : "text-gray-100"}`}>{title}</p>
+        <p className="mt-0.5 text-sm text-gray-500">{description}</p>
+      </div>
+    </Link>
+  );
+}
 
 export default function SettingsPage() {
+  const { data: session } = useSession();
   const [nodes, setNodes] = useState<DataNode[]>([]);
-  const [newNodeName, setNewNodeName] = useState("");
-  const [nodeLoading, setNodeLoading] = useState(false);
-  const [nodeError, setNodeError] = useState<string | null>(null);
-
-  const [backupToken, setBackupToken] = useState("");
-  const [backupLogin, setBackupLogin] = useState("");
-  const [backupStatus, setBackupStatus] = useState<string | null>(null);
-  const [replicating, setReplicating] = useState(false);
-
-  const [syncing, setSyncing] = useState(false);
-  const [syncStatus, setSyncStatus] = useState<string | null>(null);
 
   const loadNodes = useCallback(() => {
     fetch("/api/nodes")
@@ -24,225 +72,114 @@ export default function SettingsPage() {
       .catch(console.error);
   }, []);
 
-  useEffect(() => {
-    loadNodes();
-  }, [loadNodes]);
+  useEffect(() => { loadNodes(); }, [loadNodes]);
 
-  const createNode = async () => {
-    if (!newNodeName.trim()) return;
-    setNodeLoading(true);
-    setNodeError(null);
-    try {
-      const res = await fetch("/api/nodes", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newNodeName.trim() }),
-      });
-      if (!res.ok) {
-        const err = await res.json() as { error: string };
-        throw new Error(err.error);
-      }
-      setNewNodeName("");
-      loadNodes();
-    } catch (err) {
-      setNodeError(err instanceof Error ? err.message : "Failed to create node");
-    } finally {
-      setNodeLoading(false);
-    }
-  };
-
-  const triggerSync = async () => {
-    setSyncing(true);
-    setSyncStatus(null);
-    try {
-      const res = await fetch("/api/sync", { method: "POST" });
-      const data = await res.json() as { ok: boolean; synced_at: string };
-      setSyncStatus(`Synced at ${new Date(data.synced_at).toLocaleTimeString()}`);
-    } catch {
-      setSyncStatus("Sync failed");
-    } finally {
-      setSyncing(false);
-    }
-  };
-
-  const triggerBackup = async () => {
-    if (!backupToken || !backupLogin) return;
-    setReplicating(true);
-    setBackupStatus(null);
-    try {
-      const res = await fetch("/api/sync/backup", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ backupToken, backupLogin }),
-      });
-      const data = await res.json() as { ok: boolean; replicated: number };
-      setBackupStatus(`Replicated ${data.replicated} files to @${backupLogin}`);
-    } catch {
-      setBackupStatus("Replication failed");
-    } finally {
-      setReplicating(false);
-    }
-  };
+  const login = (session as unknown as { login?: string } | null)?.login ?? "—";
+  const totalUsedMb = nodes.reduce((sum, n) => sum + n.size_mb, 0);
+  const totalUsedGb = (totalUsedMb / 1024).toFixed(2);
+  const nodeCount = nodes.length;
 
   return (
-    <div className="flex flex-col gap-8 max-w-2xl">
+    <div className="max-w-3xl space-y-8">
+      {/* ── Page header ──────────────────────────────────────────────────── */}
       <div>
-        <h1 className="text-xl font-bold">Settings</h1>
-        <p className="text-sm text-gray-500 mt-0.5">
-          Manage data nodes, sync, and backup configuration.
+        <h1 className="text-2xl font-bold tracking-tight text-gray-100">Settings</h1>
+        <p className="mt-1 text-sm text-gray-500">
+          Manage your GitStore configuration, connected nodes, sync, and security.
         </p>
       </div>
 
-      {/* ─── Data Nodes ─── */}
-      <section className="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-4">
-        <div>
-          <h2 className="font-semibold text-gray-100">Data Nodes</h2>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Each node maps to a private GitHub repository in your account.
-          </p>
-        </div>
-
-        {/* Existing nodes */}
-        <div className="space-y-2">
-          {nodes.map((node) => (
-            <div
-              key={node.id}
-              className="flex items-center justify-between px-3 py-2 bg-gray-800 rounded-lg"
-            >
-              <div>
-                <p className="text-sm font-medium text-gray-100">{node.id}</p>
-                <p className="text-xs text-gray-500">{node.repo}</p>
-              </div>
-              <span className="text-xs text-gray-400">{node.size_mb.toFixed(2)} MB</span>
-            </div>
-          ))}
-          {nodes.length === 0 && (
-            <p className="text-sm text-gray-600">No nodes yet.</p>
-          )}
-        </div>
-
-        {/* Create new node */}
-        <div className="flex gap-2">
-          <input
-            type="text"
-            placeholder="Node name (e.g. photos)"
-            value={newNodeName}
-            onChange={(e) => setNewNodeName(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") void createNode(); }}
-            className="flex-1 px-3 py-2 bg-gray-800 border border-gray-700 hover:border-gray-600 focus:border-emerald-500/50 rounded-lg text-sm text-gray-100 placeholder-gray-600 outline-none"
-          />
-          <button
-            onClick={createNode}
-            disabled={nodeLoading || !newNodeName.trim()}
-            className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-gray-950 font-semibold rounded-lg text-sm transition-colors"
-          >
-            {nodeLoading ? "Creating…" : "Create"}
-          </button>
-        </div>
-        {nodeError && <p className="text-xs text-red-400">{nodeError}</p>}
-      </section>
-
-      {/* ─── Index Sync ─── */}
-      <section className="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-4">
-        <div>
-          <h2 className="font-semibold text-gray-100">Index Sync</h2>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Force-sync the master index.json to the secondary name-node repo.
-          </p>
-        </div>
-        <div className="flex items-center gap-4">
-          <button
-            onClick={triggerSync}
-            disabled={syncing}
-            className="px-4 py-2 bg-gray-800 hover:bg-gray-700 disabled:opacity-50 border border-gray-700 text-gray-200 font-medium rounded-lg text-sm transition-colors"
-          >
-            {syncing ? "Syncing…" : "Sync Now"}
-          </button>
-          {syncStatus && <p className="text-xs text-emerald-400">{syncStatus}</p>}
-        </div>
-      </section>
-
-      {/* ─── Backup Account ─── */}
-      <section className="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-4">
-        <div>
-          <h2 className="font-semibold text-gray-100">Backup GitHub Account</h2>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Optionally replicate all data nodes to a second GitHub account for fault tolerance.
-            Generate a Personal Access Token with <code className="text-emerald-400">repo</code> scope.
-          </p>
-        </div>
-
-        <div className="space-y-3">
-          <input
-            type="text"
-            placeholder="Backup GitHub username"
-            value={backupLogin}
-            onChange={(e) => setBackupLogin(e.target.value)}
-            className="w-full px-3 py-2 bg-gray-800 border border-gray-700 hover:border-gray-600 focus:border-emerald-500/50 rounded-lg text-sm text-gray-100 placeholder-gray-600 outline-none"
-          />
-          <input
-            type="password"
-            placeholder="Backup GitHub Personal Access Token"
-            value={backupToken}
-            onChange={(e) => setBackupToken(e.target.value)}
-            className="w-full px-3 py-2 bg-gray-800 border border-gray-700 hover:border-gray-600 focus:border-emerald-500/50 rounded-lg text-sm text-gray-100 placeholder-gray-600 outline-none"
-          />
-        </div>
-
-        <div className="flex items-center gap-4">
-          <button
-            onClick={triggerBackup}
-            disabled={replicating || !backupToken || !backupLogin}
-            className="px-4 py-2 bg-gray-800 hover:bg-gray-700 disabled:opacity-50 border border-gray-700 text-gray-200 font-medium rounded-lg text-sm transition-colors"
-          >
-            {replicating ? "Replicating…" : "Replicate to Backup"}
-          </button>
-          {backupStatus && <p className="text-xs text-emerald-400">{backupStatus}</p>}
-        </div>
-
-        <p className="text-xs text-gray-600">
-          ⚠️ The token is sent to your own server-side API route — it is never stored by GitStore.
-        </p>
-      </section>
-
-      {/* ─── Danger Zone ─── */}
-      <section className="bg-red-950/20 border border-red-900/40 rounded-xl p-6 space-y-4">
-        <div>
-          <h2 className="font-semibold text-red-400">Danger Zone</h2>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Irreversible actions that permanently delete your data.
-          </p>
-        </div>
-        <div>
-          <a
-            href="/settings/danger"
-            className="inline-flex items-center px-4 py-2 bg-red-900/30 hover:bg-red-800/50 border border-red-800/50 text-red-200 font-medium rounded-lg text-sm transition-colors"
-          >
-            Enter Danger Zone &rarr;
-          </a>
-        </div>
-      </section>
-
-      {/* ─── Architecture note ─── */}
-      <section className="bg-gray-900/50 border border-gray-800/50 rounded-xl p-5">
-        <h2 className="font-semibold text-gray-300 mb-3 text-sm">Architecture</h2>
-        <div className="grid grid-cols-3 gap-3 text-xs text-gray-500">
-          <div className="bg-gray-800/50 rounded-lg p-3">
-            <p className="font-semibold text-gray-300 mb-1">Master Name Node</p>
-            <p className="font-mono text-emerald-500/80">gitstore-master</p>
-            <p className="mt-1">Stores the full index.json with file metadata, hashes, search index</p>
+      {/* ── Account summary ───────────────────────────────────────────────── */}
+      <section className="rounded-xl border border-gray-800 bg-gray-900 p-5">
+        <div className="flex items-center gap-3">
+          <div className="rounded-full bg-gray-800 p-2.5">
+            <UserIcon className="h-5 w-5 text-gray-300" />
           </div>
-          <div className="bg-gray-800/50 rounded-lg p-3">
-            <p className="font-semibold text-gray-300 mb-1">Secondary Name Node</p>
-            <p className="font-mono text-emerald-500/80">gitstore-secondary</p>
+          <div>
+            <p className="font-semibold text-gray-100">@{login}</p>
+            <p className="text-xs text-gray-500">GitHub account · GitStore owner</p>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Quick stats ───────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+        <QuickStat label="Storage Used" value={`${totalUsedGb} GB`} sub="of 250 GB" />
+        <QuickStat label="Connected Nodes" value={String(nodeCount)} sub="GitHub repos" />
+        <QuickStat label="Plan" value="Free" sub="Unlimited files" />
+      </div>
+
+      {/* ── Settings sections ─────────────────────────────────────────────── */}
+      <section className="space-y-3">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Configuration</h2>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <SettingsCard
+            href="/settings/nodes"
+            title="Connected Nodes"
+            description="Manage GitHub repo nodes that store your files"
+            icon={ServerIcon}
+          />
+          <SettingsCard
+            href="/settings/storage"
+            title="Storage"
+            description="View storage usage across all data nodes"
+            icon={HardDriveIcon}
+          />
+          <SettingsCard
+            href="/settings/sync"
+            title="Sync & Backup"
+            description="Force sync index and configure backup accounts"
+            icon={RefreshCwIcon}
+          />
+          <SettingsCard
+            href="/settings/security"
+            title="Security"
+            description="Encryption, access tokens, and permissions"
+            icon={ShieldIcon}
+          />
+          <SettingsCard
+            href="/settings/cache"
+            title="Cache"
+            description="IndexedDB cache layers and local storage"
+            icon={DatabaseIcon}
+          />
+        </div>
+      </section>
+
+      {/* ── Architecture ─────────────────────────────────────────────────── */}
+      <section className="rounded-xl border border-gray-800/50 bg-gray-900/50 p-5">
+        <h2 className="mb-3 text-sm font-semibold text-gray-300">Architecture</h2>
+        <div className="grid grid-cols-1 gap-3 text-xs text-gray-500 sm:grid-cols-3">
+          <div className="rounded-lg bg-gray-800/50 p-3">
+            <p className="font-semibold text-gray-300">Master Name Node</p>
+            <p className="mt-0.5 font-mono text-emerald-500/80">gitstore-master</p>
+            <p className="mt-1">Stores the full index.json with file metadata, hashes, and search index</p>
+          </div>
+          <div className="rounded-lg bg-gray-800/50 p-3">
+            <p className="font-semibold text-gray-300">Secondary Name Node</p>
+            <p className="mt-0.5 font-mono text-emerald-500/80">gitstore-secondary</p>
             <p className="mt-1">Mirrors index.json from master after every write for fault tolerance</p>
           </div>
-          <div className="bg-gray-800/50 rounded-lg p-3">
-            <p className="font-semibold text-gray-300 mb-1">Data Nodes</p>
-            <p className="font-mono text-emerald-500/80">gitstore-[name]</p>
+          <div className="rounded-lg bg-gray-800/50 p-3">
+            <p className="font-semibold text-gray-300">Data Nodes</p>
+            <p className="mt-0.5 font-mono text-emerald-500/80">gitstore-[name]</p>
             <p className="mt-1">Actual file storage — one private repo per category</p>
           </div>
         </div>
+      </section>
+
+      {/* ── Danger zone (bottom, visually separated) ──────────────────────── */}
+      <section className="pt-2">
+        <div className="mb-2 flex items-center gap-2">
+          <div className="flex-1 border-t border-gray-800" />
+        </div>
+        <SettingsCard
+          href="/settings/danger-zone"
+          title="Danger Zone"
+          description="Irreversible actions — permanently delete all GitStore data"
+          icon={AlertTriangleIcon}
+          isDanger
+        />
       </section>
     </div>
   );

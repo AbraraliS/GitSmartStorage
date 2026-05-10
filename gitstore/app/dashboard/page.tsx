@@ -12,12 +12,11 @@ import {
 import { useIndex } from "@/components/providers/IndexContext";
 import {
   getStarredFiles,
-  getSubFoldersOf,
   getTrashedFiles,
   searchFiles,
-  getSmartFolderFiles,
 } from "@/lib/index";
 import { buildFileTree, getFolderChildren, getRootChildren } from "@/lib/filesystem";
+import { getSmartCollectionFiles, getSmartCollections, type SmartCollectionId } from "@/lib/smart";
 import { FileGrid } from "@/components/files/FileGrid";
 import { FileList } from "@/components/files/FileList";
 import {
@@ -42,10 +41,8 @@ export default function DashboardPage() {
   const [newFolderDialogOpen, setNewFolderDialogOpen] = useState(false);
 
   const view = params.get("view") ?? "";
-  const node = params.get("node") ?? "";
   const path = params.get("path") ?? "";
   const smartType = params.get("type") ?? "";
-  const smartValue = params.get("value") ?? "";
   const q = params.get("q") ?? "";
   const mode = params.get("mode") ?? "grid";
 
@@ -94,13 +91,11 @@ export default function DashboardPage() {
       };
     }
 
-    // ── Starred ──────────────────────────────────────────────────────────────
+    // ── Starred (shortcut) ────────────────────────────────────────────────
     if (view === "starred") {
       return {
         files: getStarredFiles(index),
-        folders: Object.values(index.folders ?? {})
-          .filter((folder) => folder.starred && !folder.trashed)
-          .map((folder) => ({ name: folder.name, path: folder.path })),
+        folders: [] as FolderEntry[],
       };
     }
 
@@ -115,24 +110,11 @@ export default function DashboardPage() {
       return { files: trashed, folders: [] };
     }
 
-    // ── Smart folders ────────────────────────────────────────────────────────
-    if (view === "smart") {
-      if (smartType === "starred") {
-        return {
-          files: getSmartFolderFiles(index, "starred"),
-          folders: [] as FolderEntry[],
-        };
-      }
-      if (
-        smartType === "month" ||
-        smartType === "tag" ||
-        smartType === "node"
-      ) {
-        return {
-          files: getSmartFolderFiles(index, smartType, smartValue),
-          folders: [] as FolderEntry[],
-        };
-      }
+    // ── Smart collections (from lib/smart.ts) ──────────────────────────────
+    // Handles: /dashboard?view=smart&type=images|videos|audio|documents|...
+    if (view === "smart" && smartType) {
+      const files = getSmartCollectionFiles(index, smartType as SmartCollectionId);
+      return { files, folders: [] as FolderEntry[] };
     }
 
     // ── Folder view ──────────────────────────────────────────────────────────
@@ -149,15 +131,6 @@ export default function DashboardPage() {
       return { files: fileRecords, folders: folderEntries };
     }
 
-    // ── Node filter ──────────────────────────────────────────────────────────
-    if (node) {
-      return {
-        files: Object.values(index.files).filter(
-          (f) => !f.trashed && f.node === node
-        ),
-        folders: [] as FolderEntry[],
-      };
-    }
 
     // ── My Files root (default) ──────────────────────────────────────────────
     // Shows top-level folders + root-level files (Google Drive style).
@@ -188,7 +161,7 @@ export default function DashboardPage() {
       files: [...rootFileRecords, ...orphans],
       folders: rootFolderEntries,
     };
-  }, [index, fileTree, node, path, q, smartType, smartValue, view]);
+  }, [index, fileTree, path, q, smartType, view]);
 
   // Must be before early returns — Rules of Hooks
   const hasLegacyFiles = useMemo(
