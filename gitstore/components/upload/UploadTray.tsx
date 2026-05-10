@@ -96,7 +96,7 @@ export function UploadTray() {
       <button
         type="button"
         onClick={() => setMinimized(false)}
-        className="fixed bottom-4 right-4 z-50 flex items-center gap-2 rounded-full bg-gray-900 border border-gray-700 px-4 py-2.5 text-sm text-white shadow-xl hover:bg-gray-800 transition-all"
+        className="fixed bottom-[calc(5rem+env(safe-area-inset-bottom,0px))] right-4 z-50 flex items-center gap-2 rounded-full bg-gray-900 border border-gray-700 px-4 py-2.5 text-sm text-white shadow-xl hover:bg-gray-800 transition-all sm:bottom-4"
       >
         {waiting > 0 && (
           <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" />
@@ -127,7 +127,7 @@ export function UploadTray() {
 
   // ── Full tray ────────────────────────────────────────────────────────────
   return (
-    <section className="fixed bottom-0 right-0 z-50 w-full border-t border-gray-700 bg-gray-900 shadow-2xl md:bottom-4 md:right-4 md:w-80 md:rounded-2xl md:border">
+    <section className="fixed bottom-0 right-0 z-50 w-full border-t border-gray-700 bg-gray-900 shadow-2xl md:bottom-4 md:right-4 md:w-80 md:rounded-2xl md:border rounded-t-2xl max-h-[60dvh] md:max-h-none flex flex-col">
       {/* Header */}
       <header className="flex items-center justify-between border-b border-gray-800 px-4 py-3">
         <div>
@@ -147,14 +147,14 @@ export function UploadTray() {
             <button
               type="button"
               onClick={clearCompleted}
-              className="rounded px-2 py-1 text-xs text-gray-500 hover:bg-gray-800 hover:text-gray-300"
+              className="rounded px-2 py-2 text-xs text-gray-500 hover:bg-gray-800 hover:text-gray-300"
             >
               Clear done
             </button>
           )}
           <button
             type="button"
-            className="rounded p-1.5 hover:bg-gray-800"
+            className="touch-target rounded hover:bg-gray-800"
             onClick={() => setMinimized(true)}
             aria-label="Minimize"
           >
@@ -162,7 +162,7 @@ export function UploadTray() {
           </button>
           <button
             type="button"
-            className="rounded p-1.5 hover:bg-gray-800"
+            className="touch-target rounded hover:bg-gray-800"
             onClick={() => setMinimized(true)}
             aria-label="Close"
           >
@@ -172,7 +172,7 @@ export function UploadTray() {
       </header>
 
       {/* Upload list */}
-      <div className="max-h-72 space-y-1 overflow-auto p-3">
+      <div className="max-h-[calc(60dvh-4rem)] space-y-1 overflow-auto overscroll-contain p-3 md:max-h-72">
         {uploads.map((item) => {
           const pct = item.percentage ?? (
             item.status === "done" ? 100 : 0
@@ -262,6 +262,8 @@ export function UploadTray() {
           );
         })}
       </div>
+      {/* Safe-area padding for iPhone gesture bar */}
+      <div className="h-[env(safe-area-inset-bottom,0px)] shrink-0" />
     </section>
   );
 }

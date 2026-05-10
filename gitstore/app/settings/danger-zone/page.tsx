@@ -1,20 +1,14 @@
 import { WipeDataButton } from "@/components/settings/WipeDataButton";
-import Link from "next/link";
-import { AlertTriangleIcon, ArrowLeftIcon } from "lucide-react";
+import { AlertTriangleIcon } from "lucide-react";
+import { MobileHeader } from "@/components/layout/MobileHeader";
 
 export default function DangerZonePage() {
   return (
     <div className="max-w-2xl space-y-6">
+      <MobileHeader title="Danger Zone" backHref="/settings" />
       {/* Header */}
       <div>
-        <Link
-          href="/settings"
-          className="mb-4 inline-flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-200 transition"
-        >
-          <ArrowLeftIcon className="h-4 w-4" />
-          Back to Settings
-        </Link>
-        <div className="flex items-center gap-3 mt-2">
+        <div className="flex items-center gap-3">
           <div className="rounded-lg bg-red-950/30 p-2.5">
             <AlertTriangleIcon className="h-5 w-5 text-red-400" />
           </div>

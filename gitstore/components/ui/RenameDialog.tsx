@@ -13,6 +13,12 @@ export interface RenameDialogProps {
   onCancel: () => void;
 }
 
+/**
+ * RenameDialog — responsive bottom-sheet on mobile, centered on desktop.
+ * Input is automatically selected and focused on open.
+ * Virtual keyboard safe: dialog is pinned to bottom on mobile so keyboard
+ * pushing the viewport doesn't hide the input or buttons.
+ */
 export function RenameDialog({
   open,
   currentName,
@@ -25,7 +31,6 @@ export function RenameDialog({
   const [pending, setPending] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Reset state and select all text on open
   useEffect(() => {
     if (!open) { setPending(false); return; }
     setValue(currentName);
@@ -34,7 +39,6 @@ export function RenameDialog({
     return () => clearTimeout(t);
   }, [open, currentName]);
 
-  // Escape to cancel — blocked while pending
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -61,7 +65,7 @@ export function RenameDialog({
   const handleConfirm = async () => {
     const err = validate(value);
     if (err) { setError(err); return; }
-    if (pending) return; // prevent double-submit
+    if (pending) return;
     setPending(true);
     try {
       await onConfirm(value.trim());
@@ -80,21 +84,35 @@ export function RenameDialog({
 
   return (
     <>
-      {/* Backdrop — blocked while pending */}
+      {/* Backdrop */}
       <div
         className="fixed inset-0 z-[299] bg-black/70"
         onClick={() => { if (!pending) onCancel(); }}
         aria-hidden
       />
 
-      {/* Dialog */}
+      {/*
+       * Dialog panel — bottom-sheet on mobile, centered on sm+
+       * Pinned to bottom on mobile keeps it above the virtual keyboard
+       */}
       <div
         role="dialog"
         aria-modal
         aria-labelledby="rename-title"
         aria-busy={pending}
-        className="fixed left-1/2 top-1/2 z-[300] w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-gray-700 bg-gray-900 p-6 shadow-2xl"
+        className={[
+          "fixed z-[300] w-full border border-gray-700 bg-gray-900 shadow-2xl",
+          // Mobile: bottom-sheet
+          "bottom-0 left-0 right-0 rounded-t-2xl p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom,0px))]",
+          "animate-slide-up",
+          // Desktop: centered modal
+          "sm:bottom-auto sm:left-1/2 sm:right-auto sm:top-1/2 sm:max-w-md sm:-translate-x-1/2 sm:-translate-y-1/2",
+          "sm:rounded-2xl sm:p-6 sm:animate-fade-scale",
+        ].join(" ")}
       >
+        {/* Drag handle */}
+        <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-gray-700 sm:hidden" aria-hidden />
+
         {/* Header */}
         <div className="flex items-center justify-between">
           <h2 id="rename-title" className="text-base font-semibold text-gray-100">
@@ -104,7 +122,7 @@ export function RenameDialog({
             type="button"
             onClick={() => { if (!pending) onCancel(); }}
             disabled={pending}
-            className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-800 hover:text-gray-300 transition-colors disabled:opacity-30"
+            className="touch-target rounded-lg text-gray-500 hover:bg-gray-800 hover:text-gray-300 transition-colors disabled:opacity-30"
             aria-label="Close"
           >
             <XIcon className="h-4 w-4" />
@@ -112,9 +130,9 @@ export function RenameDialog({
         </div>
 
         {/* Input */}
-        <div className="mt-5">
+        <div className="mt-4">
           <div
-            className={`flex items-center gap-2 rounded-xl border bg-gray-800 px-3 py-2.5 transition-colors ${
+            className={`flex items-center gap-2 rounded-xl border bg-gray-800 px-3 py-3 transition-colors ${
               error
                 ? "border-red-500/60 ring-1 ring-red-500/30"
                 : "border-gray-600 focus-within:border-emerald-500/60 focus-within:ring-1 focus-within:ring-emerald-500/30"
@@ -134,21 +152,21 @@ export function RenameDialog({
               placeholder={`${type === "folder" ? "Folder" : "File"} name`}
               spellCheck={false}
               aria-label="New name"
+              autoComplete="off"
             />
           </div>
-
           {error && (
             <p className="mt-1.5 text-xs text-red-400" role="alert">{error}</p>
           )}
         </div>
 
-        {/* Footer */}
-        <div className="mt-5 flex justify-end gap-3">
+        {/* Footer — stacked on mobile, row on desktop */}
+        <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:gap-3">
           <button
             type="button"
             onClick={onCancel}
             disabled={pending}
-            className="rounded-lg px-4 py-2 text-sm text-gray-400 hover:bg-gray-800 hover:text-gray-200 transition-colors disabled:opacity-30"
+            className="w-full rounded-xl px-4 py-3 text-sm font-medium text-gray-400 hover:bg-gray-800 hover:text-gray-200 transition-colors disabled:opacity-30 sm:w-auto sm:py-2"
           >
             Cancel
           </button>
@@ -158,7 +176,7 @@ export function RenameDialog({
             variant="primary"
             disabled={disableConfirm}
             onClick={() => void handleConfirm()}
-            className="bg-emerald-500 hover:bg-emerald-400 text-gray-950 disabled:bg-emerald-500/40"
+            className="w-full bg-emerald-500 hover:bg-emerald-400 text-gray-950 disabled:bg-emerald-500/40 sm:w-auto"
           >
             Rename
           </PendingButton>

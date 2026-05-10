@@ -70,7 +70,7 @@ export function FileCard({
         </button>
       </div>
 
-      <div className="mb-2 flex h-24 items-center justify-center overflow-hidden rounded-lg bg-gray-100 dark:bg-gray-800 relative">
+      <div className="mb-2 flex aspect-video items-center justify-center overflow-hidden rounded-lg bg-gray-100 dark:bg-gray-800 relative">
         {file.thumbnail ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={file.thumbnail} alt={file.name} className="h-full w-full object-cover" draggable={false} />

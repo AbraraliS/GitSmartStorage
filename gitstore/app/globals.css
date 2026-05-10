@@ -1,8 +1,15 @@
 @import "tailwindcss";
 
+/* ─── Design tokens ───────────────────────────────────────────────────────── */
 :root {
   --background: #ffffff;
   --foreground: #171717;
+
+  /* Safe-area insets (fallback to 0 for non-notch devices) */
+  --safe-top:    env(safe-area-inset-top,    0px);
+  --safe-right:  env(safe-area-inset-right,  0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left:   env(safe-area-inset-left,   0px);
 }
 
 @theme inline {
@@ -19,27 +26,110 @@
   }
 }
 
+/* ─── Base ────────────────────────────────────────────────────────────────── */
+html {
+  /* Prevent layout shift when scrollbar appears/disappears */
+  scrollbar-gutter: stable;
+}
+
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+  /* Prevent touch callout on interactive elements */
+  -webkit-tap-highlight-color: transparent;
+  /* Improve touch rendering */
+  touch-action: manipulation;
 }
 
-/* Thin, minimal scrollbar for dark modal panels */
+/* ─── Dynamic viewport height ─────────────────────────────────────────────── */
+/* Use .h-dvh instead of h-screen for mobile-browser-safe full-height */
+.h-dvh  { height: 100dvh; }
+.min-h-dvh { min-height: 100dvh; }
+.max-h-dvh { max-height: 100dvh; }
+
+/* ─── Auto-fill grid ──────────────────────────────────────────────────────── */
+/* Used by FileGrid for fluid responsive columns */
+.file-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 0.75rem; /* gap-3 */
+}
+
+/* Cap card width on ultrawide so cards don't become enormous */
+@media (min-width: 1536px) {
+  .file-grid {
+    grid-template-columns: repeat(auto-fill, minmax(180px, 220px));
+  }
+}
+
+/* ─── Safe-area utilities ─────────────────────────────────────────────────── */
+.pb-safe  { padding-bottom: env(safe-area-inset-bottom, 0px); }
+.pt-safe  { padding-top:    env(safe-area-inset-top,    0px); }
+.pl-safe  { padding-left:   env(safe-area-inset-left,   0px); }
+.pr-safe  { padding-right:  env(safe-area-inset-right,  0px); }
+.mb-safe  { margin-bottom:  env(safe-area-inset-bottom, 0px); }
+
+/* ─── Overscroll containment ──────────────────────────────────────────────── */
+/* Applied to drawers/modals to prevent background scroll chaining */
+.overscroll-contain { overscroll-behavior: contain; }
+.overscroll-none    { overscroll-behavior: none;    }
+
+/* ─── Thin modal scrollbar ────────────────────────────────────────────────── */
 .modal-scroll {
   scrollbar-width: thin;
-  scrollbar-color: #374151 transparent; /* thumb track */
+  scrollbar-color: #374151 transparent;
 }
-.modal-scroll::-webkit-scrollbar {
-  width: 4px;
-}
-.modal-scroll::-webkit-scrollbar-track {
-  background: transparent;
-}
-.modal-scroll::-webkit-scrollbar-thumb {
+.modal-scroll::-webkit-scrollbar        { width: 4px; }
+.modal-scroll::-webkit-scrollbar-track  { background: transparent; }
+.modal-scroll::-webkit-scrollbar-thumb  {
   background-color: #374151;
   border-radius: 9999px;
 }
-.modal-scroll::-webkit-scrollbar-thumb:hover {
-  background-color: #4b5563;
+.modal-scroll::-webkit-scrollbar-thumb:hover { background-color: #4b5563; }
+
+/* ─── Bottom-sheet animation ──────────────────────────────────────────────── */
+@keyframes slide-up {
+  from { transform: translateY(100%); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+@keyframes fade-scale-in {
+  from { transform: scale(0.95); opacity: 0; }
+  to   { transform: scale(1);    opacity: 1; }
+}
+
+.animate-slide-up    { animation: slide-up    0.22s cubic-bezier(0.32,0.72,0,1) forwards; }
+.animate-fade-scale  { animation: fade-scale-in 0.18s ease-out forwards; }
+
+/* ─── Drawer animation ────────────────────────────────────────────────────── */
+@keyframes drawer-in {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(0); }
+}
+.animate-drawer-in { animation: drawer-in 0.22s cubic-bezier(0.32,0.72,0,1) forwards; }
+
+/* ─── Reduced motion ──────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .animate-slide-up,
+  .animate-fade-scale,
+  .animate-drawer-in {
+    animation: none;
+  }
+}
+
+/* ─── Touch tap target enforcement ───────────────────────────────────────── */
+/* Applied to interactive elements in bottom nav */
+.touch-target {
+  min-height: 44px;
+  min-width: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ─── Mobile bottom nav spacing ──────────────────────────────────────────── */
+/* Ensures content is not hidden behind the fixed bottom nav on mobile */
+.mobile-bottom-inset {
+  padding-bottom: calc(3.5rem + env(safe-area-inset-bottom, 0px));
 }

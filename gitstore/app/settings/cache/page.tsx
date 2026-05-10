@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { DatabaseIcon, Trash2Icon } from "lucide-react";
+import { MobileHeader } from "@/components/layout/MobileHeader";
 
 export default function CachePage() {
   const [clearing, setClearing] = useState(false);
@@ -32,6 +33,7 @@ export default function CachePage() {
 
   return (
     <div className="max-w-2xl space-y-6">
+      <MobileHeader title="Cache" backHref="/settings" />
       <div>
         <h1 className="text-xl font-bold text-gray-100">Cache</h1>
         <p className="mt-1 text-sm text-gray-500">

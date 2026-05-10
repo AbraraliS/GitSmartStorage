@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AlertTriangleIcon,
+  ArrowLeftIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   DownloadIcon,
@@ -344,9 +345,19 @@ export function PreviewModal({
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       {/* ── Top bar ──────────────────────────────────────────────────── */}
-      <div className="flex shrink-0 items-center justify-between border-b border-gray-800 bg-gray-950/80 px-4 py-3 backdrop-blur">
-        <div className="flex min-w-0 items-center gap-3">
-          <FileIcon className="h-4 w-4 shrink-0 text-gray-400" />
+      <div className="flex shrink-0 items-center justify-between border-b border-gray-800 bg-gray-950/80 px-2 py-2 backdrop-blur md:px-4 md:py-3">
+        <div className="flex min-w-0 items-center gap-2">
+          {/* Back/close button — behaves as back on mobile, X on desktop */}
+          <button
+            type="button"
+            onClick={onClose}
+            className="touch-target shrink-0 rounded-xl text-gray-400 hover:bg-white/10 hover:text-gray-100 transition"
+            aria-label="Close preview"
+          >
+            <ArrowLeftIcon className="h-5 w-5 md:hidden" />
+            <XIcon className="hidden h-4 w-4 md:block" />
+          </button>
+          <FileIcon className="hidden h-4 w-4 shrink-0 text-gray-400 md:block" />
           <p className="truncate text-sm font-medium text-gray-100">{file.name}</p>
           <span className="hidden text-xs text-gray-500 md:inline">{formatBytes(file.size)}</span>
           {state && (
@@ -359,7 +370,7 @@ export function PreviewModal({
           <a
             href={downloadUrl}
             download={file.name}
-            className="rounded p-2 text-gray-400 hover:bg-white/10 hover:text-gray-100 transition"
+            className="touch-target rounded-xl text-gray-400 hover:bg-white/10 hover:text-gray-100 transition"
             aria-label="Download"
           >
             <DownloadIcon className="h-4 w-4" />
@@ -369,10 +380,11 @@ export function PreviewModal({
               {currentIndex + 1} / {files.length}
             </span>
           )}
+          {/* Desktop close button — hidden on mobile (top-left ArrowLeft used instead) */}
           <button
             type="button"
             onClick={onClose}
-            className="rounded p-2 text-gray-400 hover:bg-white/10 hover:text-gray-100 transition"
+            className="touch-target hidden rounded-xl text-gray-400 hover:bg-white/10 hover:text-gray-100 transition md:flex"
             aria-label="Close preview"
           >
             <XIcon className="h-4 w-4" />

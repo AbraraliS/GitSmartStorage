@@ -55,7 +55,7 @@ export function BulkActionBar({
   };
 
   return (
-    <div data-bulk-action-bar className="fixed bottom-20 left-1/2 z-40 -translate-x-1/2 flex flex-col items-center gap-2">
+    <div data-bulk-action-bar className="fixed bottom-[calc(4rem+env(safe-area-inset-bottom,0px))] left-1/2 z-40 -translate-x-1/2 flex flex-col items-center gap-2 max-w-[calc(100vw-2rem)]">
       {/* Error message */}
       {error && (
         <div className="rounded-lg border border-red-700 bg-red-950/80 px-4 py-2 text-xs text-red-300">
@@ -169,7 +169,7 @@ function ActionButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm text-gray-300 hover:bg-gray-800 disabled:opacity-40 disabled:cursor-not-allowed transition ${className}`}
+      className={`flex items-center gap-1.5 rounded-lg px-3 py-2.5 text-sm text-gray-300 hover:bg-gray-800 disabled:opacity-40 disabled:cursor-not-allowed transition sm:px-2.5 sm:py-1.5 ${className}`}
     >
       {busy
         ? <Loader2Icon className="h-4 w-4 animate-spin" />

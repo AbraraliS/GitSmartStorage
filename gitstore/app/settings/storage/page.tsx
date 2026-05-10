@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { DataNode } from "@/types";
 import { HardDriveIcon } from "lucide-react";
+import { MobileHeader } from "@/components/layout/MobileHeader";
 
 export default function StoragePage() {
   const [nodes, setNodes] = useState<DataNode[]>([]);
@@ -23,6 +24,7 @@ export default function StoragePage() {
 
   return (
     <div className="max-w-2xl space-y-6">
+      <MobileHeader title="Storage" backHref="/settings" />
       <div>
         <h1 className="text-xl font-bold text-gray-100">Storage</h1>
         <p className="mt-1 text-sm text-gray-500">

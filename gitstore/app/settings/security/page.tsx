@@ -1,10 +1,12 @@
 "use client";
 
 import { ShieldIcon, LockIcon, KeyIcon } from "lucide-react";
+import { MobileHeader } from "@/components/layout/MobileHeader";
 
 export default function SecurityPage() {
   return (
     <div className="max-w-2xl space-y-6">
+      <MobileHeader title="Security" backHref="/settings" />
       <div>
         <h1 className="text-xl font-bold text-gray-100">Security</h1>
         <p className="mt-1 text-sm text-gray-500">

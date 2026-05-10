@@ -150,7 +150,7 @@ export function FileGrid({
           </div>
         )}
 
-        <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+        <section className="file-grid">
           {folders.map((folder) => (
             <FolderCard
               key={folder.path}
