@@ -304,10 +304,10 @@ export async function streamingUpload(
   nodeRepo: string,
   mode: "blob" | "chunk",
   signal: AbortSignal,
-  onBytesProgress: (chunkIndex: number, sent: number, total: number) => void
+  onBytesProgress: (chunkIndex: number, sent: number, total: number) => void,
+  blobShas: string[] = new Array<string>(rawChunks.length).fill("")
 ): Promise<string[]> {
   const chunkSent = new Array<number>(rawChunks.length).fill(0);
-  const blobShas = new Array<string>(rawChunks.length).fill("");
 
   let i = 0;
   const concurrency = Math.min(MAX_PARALLEL_UPLOADS, rawChunks.length);
@@ -565,7 +565,10 @@ export async function runUploadPipeline(options: UploadPipelineOptions): Promise
     console.info(`[upload] skipping ${alreadyDone}/${totalChunks} chunks (already uploaded in previous session)`);
   }
 
-  const blobShas = await streamingUpload(pendingChunks, resolvedRepo, xhrMode, signal, async (chunkIndex, sent, _total) => {
+  // Pre-initialize blobShas to avoid ReferenceError in progress closure (Temporal Dead Zone)
+  const blobShas = new Array<string>(totalChunks).fill("");
+
+  await streamingUpload(pendingChunks, resolvedRepo, xhrMode, signal, async (chunkIndex, sent, _total) => {
     const prevSent = chunkSentBytes[chunkIndex];
     const delta = sent - prevSent;
     chunkSentBytes[chunkIndex] = sent;
@@ -607,7 +610,7 @@ export async function runUploadPipeline(options: UploadPipelineOptions): Promise
         persistChunkBlobSha(session.sessionId, chunkIndex, sha).catch(console.warn);
       }
     }
-  });
+  }, blobShas);
 
   console.info(`[upload] blobs done in ${((Date.now() - uploadStartMs) / 1000).toFixed(1)}s`);
 
