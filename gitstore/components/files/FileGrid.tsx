@@ -32,6 +32,8 @@ import {
   removeFromFolderAction,
   bulkStarAction,
 } from "@/app/dashboard/actions";
+import { useActionState } from "@/components/providers/ActionStateContext";
+import { useToast } from "@/components/ui/toast/ToastContext";
 
 interface FolderEntry {
   name: string;
@@ -50,6 +52,8 @@ export function FileGrid({
   isFolderView: boolean;
 }) {
   const { setIndex, index: indexData, refresh } = useIndex();
+  const { startAction, isPending } = useActionState();
+  const { toast } = useToast();
   const { uploadFilesToFolder } = useUpload();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -156,8 +160,14 @@ export function FileGrid({
               starred={!!indexData?.folders?.[folder.path]?.starred}
               onOpen={() => openFolder(folder.path)}
               onToggleStar={async () => {
-                const next = await toggleFolderStarAction(folder.path);
-                await setIndex(next);
+                try {
+                  await startAction("star", `star:${folder.path}`, async () => {
+                    const next = await toggleFolderStarAction(folder.path);
+                    await setIndex(next);
+                  });
+                } catch (err) {
+                  toast({ title: "Star failed", variant: "error", description: (err as Error).message });
+                }
               }}
               onRename={() => setRenameFolderTarget(folder)}
               onMove={() => setMoveFolderTarget(folder)}
@@ -218,8 +228,14 @@ export function FileGrid({
               setMenu(null);
             },
             onToggleStar: async () => {
-              const next = await toggleStarAction(currentFile.hash);
-              await setIndex(next);
+              try {
+                await startAction("star", `star:${currentFile.hash}`, async () => {
+                  const next = await toggleStarAction(currentFile.hash);
+                  await setIndex(next);
+                });
+              } catch (err) {
+                toast({ title: "Star failed", variant: "error", description: (err as Error).message });
+              }
               setMenu(null);
             },
             onRename: () => {
@@ -243,33 +259,55 @@ export function FileGrid({
         currentFolder={params.get("view") === "folder" ? (params.get("path") ?? undefined) : undefined}
         allHashes={allHashes}
         onTrash={async (hashes) => {
-          const next = await bulkTrashAction(hashes);
-          await setIndex(next);
-          // Force a refresh so the file visually disappears from non-trash views
-          await refresh(true);
+          try {
+            const next = await bulkTrashAction(hashes);
+            await setIndex(next);
+            await refresh(true);
+            toast({ title: `${hashes.length} file${hashes.length > 1 ? "s" : ""} moved to trash`, variant: "success" });
+          } catch (err) {
+            toast({ title: "Trash failed", variant: "error", description: (err as Error).message });
+          }
         }}
         onDelete={async (hashes) => {
-          // confirm() is called inside BulkActionBar before onDelete is invoked
-          const next = await bulkDeleteAction(hashes);
-          await setIndex(next);
-          await refresh(true);
+          if (!confirm(`Permanently delete ${hashes.length} file(s)?`)) return;
+          try {
+            const next = await bulkDeleteAction(hashes);
+            await setIndex(next);
+            await refresh(true);
+            toast({ title: `${hashes.length} file${hashes.length > 1 ? "s" : ""} permanently deleted`, variant: "success" });
+          } catch (err) {
+            toast({ title: "Delete failed", variant: "error", description: (err as Error).message });
+          }
         }}
         onRestore={async (hashes) => {
-          const next = await bulkRestoreAction(hashes);
-          await setIndex(next);
-          await refresh(true);
+          try {
+            const next = await bulkRestoreAction(hashes);
+            await setIndex(next);
+            await refresh(true);
+            toast({ title: `${hashes.length} file${hashes.length > 1 ? "s" : ""} restored`, variant: "success" });
+          } catch (err) {
+            toast({ title: "Restore failed", variant: "error", description: (err as Error).message });
+          }
         }}
-        onMoveToFolder={(hashes) => {
-          setBulkMovePicker(hashes);
-        }}
+        onMoveToFolder={(hashes) => setBulkMovePicker(hashes)}
         onRemoveFromFolder={async (hashes) => {
           const folderPath = params.get("path") ?? "/";
-          const next = await removeFromFolderAction(hashes, folderPath);
-          await setIndex(next);
+          try {
+            const next = await removeFromFolderAction(hashes, folderPath);
+            await setIndex(next);
+            toast({ title: "Removed from folder", variant: "success" });
+          } catch (err) {
+            toast({ title: "Remove failed", variant: "error", description: (err as Error).message });
+          }
         }}
         onStar={async (hashes) => {
-          const next = await bulkStarAction(hashes);
-          await setIndex(next);
+          try {
+            const next = await bulkStarAction(hashes);
+            await setIndex(next);
+            toast({ title: "Updated", variant: "success" });
+          } catch (err) {
+            toast({ title: "Star failed", variant: "error", description: (err as Error).message });
+          }
         }}
       />
 
@@ -281,10 +319,15 @@ export function FileGrid({
           currentLocation="/"
           index={indexData}
           onConfirm={async (folderPath: string) => {
-            const next = await bulkMoveToFolderAction(bulkMovePicker, folderPath);
-            await setIndex(next);
-            clearSelection();
-            setBulkMovePicker(null);
+            try {
+              const next = await bulkMoveToFolderAction(bulkMovePicker, folderPath);
+              await setIndex(next);
+              clearSelection();
+              setBulkMovePicker(null);
+              toast({ title: `${bulkMovePicker.length} item${bulkMovePicker.length > 1 ? "s" : ""} moved`, variant: "success" });
+            } catch (err) {
+              toast({ title: "Move failed", variant: "error", description: (err as Error).message });
+            }
           }}
           onCancel={() => setBulkMovePicker(null)}
         />
@@ -307,9 +350,12 @@ export function FileGrid({
           currentName={renameTarget.name}
           type="file"
           onConfirm={async (newName) => {
-            const next = await renameFileAction(renameTarget.hash, newName);
-            await setIndex(next);
-            setRenameTarget(null);
+            await startAction("rename", `rename:${renameTarget.hash}`, async () => {
+              const next = await renameFileAction(renameTarget.hash, newName);
+              await setIndex(next);
+              setRenameTarget(null);
+              toast({ title: "File renamed", variant: "success" });
+            });
           }}
           onCancel={() => setRenameTarget(null)}
         />
@@ -323,12 +369,15 @@ export function FileGrid({
           currentLocation={moveTarget.folders?.[0] ?? "/"}
           index={indexData}
           onConfirm={async (dest) => {
-            const next =
-              currentFolder && isFolderView
-                ? await moveToFolderAction([moveTarget.hash], currentFolder, dest)
-                : await addToFolderAction([moveTarget.hash], dest);
-            await setIndex(next);
-            setMoveTarget(null);
+            await startAction("move", `move:${moveTarget.hash}`, async () => {
+              const next =
+                currentFolder && isFolderView
+                  ? await moveToFolderAction([moveTarget.hash], currentFolder, dest)
+                  : await addToFolderAction([moveTarget.hash], dest);
+              await setIndex(next);
+              setMoveTarget(null);
+              toast({ title: "File moved", variant: "success" });
+            });
           }}
           onCancel={() => setMoveTarget(null)}
         />
@@ -342,9 +391,12 @@ export function FileGrid({
           confirmLabel="Move to trash"
           confirmVariant="danger"
           onConfirm={async () => {
-            const next = await moveToTrashAction(trashTarget.hash);
-            await setIndex(next);
-            setTrashTarget(null);
+            await startAction("trash", `trash:${trashTarget.hash}`, async () => {
+              const next = await moveToTrashAction(trashTarget.hash);
+              await setIndex(next);
+              setTrashTarget(null);
+              toast({ title: `"${trashTarget.name}" moved to trash`, variant: "success" });
+            });
           }}
           onCancel={() => setTrashTarget(null)}
         />
@@ -358,14 +410,17 @@ export function FileGrid({
           currentName={renameFolderTarget.name}
           type="folder"
           onConfirm={async (newName) => {
-            const result = await renameFolderAction(renameFolderTarget.path, newName);
-            await setIndex(result.index);
-            if (params.get("path") === renameFolderTarget.path) {
-              router.replace(
-                `/dashboard?view=folder&path=${encodeURIComponent(result.newPath)}`
-              );
-            }
-            setRenameFolderTarget(null);
+            await startAction("folder-rename", `rename:${renameFolderTarget.path}`, async () => {
+              const result = await renameFolderAction(renameFolderTarget.path, newName);
+              await setIndex(result.index);
+              if (params.get("path") === renameFolderTarget.path) {
+                router.replace(
+                  `/dashboard?view=folder&path=${encodeURIComponent(result.newPath)}`
+                );
+              }
+              setRenameFolderTarget(null);
+              toast({ title: "Folder renamed", variant: "success" });
+            });
           }}
           onCancel={() => setRenameFolderTarget(null)}
         />
@@ -389,9 +444,12 @@ export function FileGrid({
           ]}
           index={indexData}
           onConfirm={async (dest) => {
-            const result = await moveFolderAction(moveFolderTarget.path, dest);
-            await setIndex(result.index);
-            setMoveFolderTarget(null);
+            await startAction("folder-move", `move:${moveFolderTarget.path}`, async () => {
+              const result = await moveFolderAction(moveFolderTarget.path, dest);
+              await setIndex(result.index);
+              setMoveFolderTarget(null);
+              toast({ title: "Folder moved", variant: "success" });
+            });
           }}
           onCancel={() => setMoveFolderTarget(null)}
         />
@@ -405,12 +463,15 @@ export function FileGrid({
           confirmLabel="Delete folder"
           confirmVariant="danger"
           onConfirm={async () => {
-            const next = await deleteFolderAction(deleteFolderTarget.path);
-            await setIndex(next);
-            if (params.get("path") === deleteFolderTarget.path) {
-              router.replace("/dashboard");
-            }
-            setDeleteFolderTarget(null);
+            await startAction("folder-delete", `delete:${deleteFolderTarget.path}`, async () => {
+              const next = await deleteFolderAction(deleteFolderTarget.path);
+              await setIndex(next);
+              if (params.get("path") === deleteFolderTarget.path) {
+                router.replace("/dashboard");
+              }
+              setDeleteFolderTarget(null);
+              toast({ title: "Folder deleted", variant: "success" });
+            });
           }}
           onCancel={() => setDeleteFolderTarget(null)}
         />

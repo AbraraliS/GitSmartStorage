@@ -356,11 +356,23 @@ export function FileList({
           }}
           onStar={async () => {
             if (menuFile) {
-              const next = await toggleStarAction(menuFile.hash);
-              await setIndex(next);
+              try {
+                await startAction("star", `star:${menuFile.hash}`, async () => {
+                  const next = await toggleStarAction(menuFile.hash);
+                  await setIndex(next);
+                });
+              } catch (err) {
+                toast({ title: "Star failed", variant: "error", description: (err as Error).message });
+              }
             } else if (menuFolder) {
-              const next = await toggleFolderStarAction(menuFolder.path);
-              await setIndex(next);
+              try {
+                await startAction("star", `star:${menuFolder.path}`, async () => {
+                  const next = await toggleFolderStarAction(menuFolder.path);
+                  await setIndex(next);
+                });
+              } catch (err) {
+                toast({ title: "Star failed", variant: "error", description: (err as Error).message });
+              }
             }
             setMenu(null);
           }}
@@ -376,8 +388,15 @@ export function FileList({
           }}
           onTrash={async () => {
             if (!menuFile) return;
-            const next = await moveToTrashAction(menuFile.hash);
-            await setIndex(next);
+            try {
+              await startAction("trash", `trash:${menuFile.hash}`, async () => {
+                const next = await moveToTrashAction(menuFile.hash);
+                await setIndex(next);
+                toast({ title: `"${menuFile.name}" moved to trash`, variant: "success" });
+              });
+            } catch (err) {
+              toast({ title: "Trash failed", variant: "error", description: (err as Error).message });
+            }
             setMenu(null);
           }}
           onOpenFolder={() => {
@@ -485,9 +504,12 @@ export function FileList({
           currentName={renameTarget.name}
           type="file"
           onConfirm={async (newName) => {
-            const next = await renameFileAction(renameTarget.hash, newName);
-            await setIndex(next);
-            setRenameTarget(null);
+            await startAction("rename", `rename:${renameTarget.hash}`, async () => {
+              const next = await renameFileAction(renameTarget.hash, newName);
+              await setIndex(next);
+              setRenameTarget(null);
+              toast({ title: "File renamed", variant: "success" });
+            });
           }}
           onCancel={() => setRenameTarget(null)}
         />
@@ -501,11 +523,14 @@ export function FileList({
           currentLocation={moveTarget.folders?.[0] ?? "/"}
           index={indexData}
           onConfirm={async (dest) => {
-            const next = isFolderView && currentFolder
-              ? await moveToFolderAction([moveTarget.hash], currentFolder, dest)
-              : await addToFolderAction([moveTarget.hash], dest);
-            await setIndex(next);
-            setMoveTarget(null);
+            await startAction("move", `move:${moveTarget.hash}`, async () => {
+              const next = isFolderView && currentFolder
+                ? await moveToFolderAction([moveTarget.hash], currentFolder, dest)
+                : await addToFolderAction([moveTarget.hash], dest);
+              await setIndex(next);
+              setMoveTarget(null);
+              toast({ title: "File moved", variant: "success" });
+            });
           }}
           onCancel={() => setMoveTarget(null)}
         />
@@ -519,9 +544,12 @@ export function FileList({
           confirmLabel="Move to trash"
           confirmVariant="danger"
           onConfirm={async () => {
-            const next = await moveToTrashAction(trashTarget.hash);
-            await setIndex(next);
-            setTrashTarget(null);
+            await startAction("trash", `trash:${trashTarget.hash}`, async () => {
+              const next = await moveToTrashAction(trashTarget.hash);
+              await setIndex(next);
+              setTrashTarget(null);
+              toast({ title: `"${trashTarget.name}" moved to trash`, variant: "success" });
+            });
           }}
           onCancel={() => setTrashTarget(null)}
         />
@@ -534,12 +562,15 @@ export function FileList({
           currentName={renameFolderTarget.name}
           type="folder"
           onConfirm={async (newName) => {
-            const result = await renameFolderAction(renameFolderTarget.path, newName);
-            await setIndex(result.index);
-            if (params.get("path") === renameFolderTarget.path) {
-              router.replace(`/dashboard?view=folder&path=${encodeURIComponent(result.newPath)}&mode=list`);
-            }
-            setRenameFolderTarget(null);
+            await startAction("folder-rename", `rename:${renameFolderTarget.path}`, async () => {
+              const result = await renameFolderAction(renameFolderTarget.path, newName);
+              await setIndex(result.index);
+              if (params.get("path") === renameFolderTarget.path) {
+                router.replace(`/dashboard?view=folder&path=${encodeURIComponent(result.newPath)}&mode=list`);
+              }
+              setRenameFolderTarget(null);
+              toast({ title: "Folder renamed", variant: "success" });
+            });
           }}
           onCancel={() => setRenameFolderTarget(null)}
         />
@@ -563,9 +594,12 @@ export function FileList({
           ]}
           index={indexData}
           onConfirm={async (dest) => {
-            const result = await moveFolderAction(moveFolderTarget.path, dest);
-            await setIndex(result.index);
-            setMoveFolderTarget(null);
+            await startAction("folder-move", `move:${moveFolderTarget.path}`, async () => {
+              const result = await moveFolderAction(moveFolderTarget.path, dest);
+              await setIndex(result.index);
+              setMoveFolderTarget(null);
+              toast({ title: "Folder moved", variant: "success" });
+            });
           }}
           onCancel={() => setMoveFolderTarget(null)}
         />
@@ -579,13 +613,16 @@ export function FileList({
           confirmLabel="Delete folder"
           confirmVariant="danger"
           onConfirm={async () => {
-            const { deleteFolderAction } = await import("@/app/dashboard/actions");
-            const next = await deleteFolderAction(deleteFolderTarget.path);
-            await setIndex(next);
-            if (params.get("path") === deleteFolderTarget.path) {
-              router.replace("/dashboard?mode=list");
-            }
-            setDeleteFolderTarget(null);
+            await startAction("folder-delete", `delete:${deleteFolderTarget.path}`, async () => {
+              const { deleteFolderAction } = await import("@/app/dashboard/actions");
+              const next = await deleteFolderAction(deleteFolderTarget.path);
+              await setIndex(next);
+              if (params.get("path") === deleteFolderTarget.path) {
+                router.replace("/dashboard?mode=list");
+              }
+              setDeleteFolderTarget(null);
+              toast({ title: "Folder deleted", variant: "success" });
+            });
           }}
           onCancel={() => setDeleteFolderTarget(null)}
         />
