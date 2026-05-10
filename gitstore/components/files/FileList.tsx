@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { FileRecord } from "@/types";
 import { formatBytes, formatDate } from "@/lib/format";
@@ -36,6 +36,9 @@ import { MoveDialog } from "@/components/ui/MoveDialog";
 import { RenameDialog } from "@/components/ui/RenameDialog";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { ListContextMenu } from "@/components/files/ListContextMenu";
+import { useActionState } from "@/components/providers/ActionStateContext";
+import { useToast } from "@/components/ui/toast/ToastContext";
+import { InlineSpinner } from "@/components/ui/loading/InlineSpinner";
 
 interface FolderEntry {
   name: string;
@@ -62,6 +65,8 @@ export function FileList({
 }) {
   const { setIndex, index: indexData, refresh } = useIndex();
   const { selected, clearSelection, toggle, selectAll, count, isSelected } = useSelection();
+  const { startAction, isPending } = useActionState();
+  const { toast } = useToast();
   const params = useSearchParams();
   const pathname = usePathname();
   const router = useRouter();
@@ -268,41 +273,54 @@ export function FileList({
                   {formatBytes(file.size)}
                 </td>
                 <td className="px-3 py-2.5 text-right align-middle">
-                  <div className={`inline-flex items-center gap-1 ${hoverRow === file.hash ? "opacity-100" : "opacity-0 group-hover:opacity-100"} transition-opacity`}>
-                    <button
-                      type="button"
-                      className="rounded p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 transition"
-                      onClick={(e) => { e.stopPropagation(); void toggleStarAction(file.hash).then(setIndex); }}
-                      aria-label="Star"
-                    >
-                      <StarIcon className={`h-4 w-4 ${file.starred ? "fill-amber-400 text-amber-400" : ""}`} />
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 transition"
-                      onClick={(e) => { e.stopPropagation(); window.open(`/api/files/download?hash=${encodeURIComponent(file.hash)}`, "_blank"); }}
-                      aria-label="Download"
-                    >
-                      <DownloadIcon className="h-4 w-4" />
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 transition"
-                      onClick={(e) => { e.stopPropagation(); setTrashTarget(file); }}
-                      aria-label="Move to trash"
-                    >
-                      <Trash2Icon className="h-4 w-4" />
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 transition"
-                      onClick={(e) => openMenu(e, "file", file.hash)}
-                      aria-label="More options"
-                    >
-                      <MoreVerticalIcon className="h-4 w-4" />
-                    </button>
-                  </div>
+                  {isPending(file.hash) ? (
+                    <InlineSpinner label="Processing…" className="text-blue-400 justify-end pr-1" />
+                  ) : (
+                    <div className={`inline-flex items-center gap-1 ${hoverRow === file.hash ? "opacity-100" : "opacity-0 group-hover:opacity-100"} transition-opacity`}>
+                      <button
+                        type="button"
+                        className="rounded p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 transition"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void startAction("star", file.hash, async () => {
+                            const next = await toggleStarAction(file.hash);
+                            await setIndex(next);
+                          }).catch((err: unknown) => {
+                            toast({ title: "Star failed", variant: "error", description: (err as Error).message });
+                          });
+                        }}
+                        aria-label={file.starred ? "Unstar" : "Star"}
+                      >
+                        <StarIcon className={`h-4 w-4 ${file.starred ? "fill-amber-400 text-amber-400" : ""}`} />
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 transition"
+                        onClick={(e) => { e.stopPropagation(); window.open(`/api/files/download?hash=${encodeURIComponent(file.hash)}`, "_blank"); }}
+                        aria-label="Download"
+                      >
+                        <DownloadIcon className="h-4 w-4" />
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 transition text-gray-400 hover:text-red-400"
+                        onClick={(e) => { e.stopPropagation(); setTrashTarget(file); }}
+                        aria-label="Move to trash"
+                      >
+                        <Trash2Icon className="h-4 w-4" />
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 transition"
+                        onClick={(e) => openMenu(e, "file", file.hash)}
+                        aria-label="More options"
+                      >
+                        <MoreVerticalIcon className="h-4 w-4" />
+                      </button>
+                    </div>
+                  )}
                 </td>
+
               </tr>
             ))}
 
@@ -376,31 +394,56 @@ export function FileList({
         currentFolder={isFolderView ? currentFolder : undefined}
         allHashes={allFileHashes}
         onTrash={async (hashes) => {
-          const next = await bulkTrashAction(hashes);
-          await setIndex(next);
-          clearSelection();
+          try {
+            const next = await bulkTrashAction(hashes);
+            await setIndex(next);
+            clearSelection();
+            toast({ title: `${hashes.length} file${hashes.length > 1 ? "s" : ""} moved to trash`, variant: "success" });
+          } catch (err) {
+            toast({ title: "Trash failed", variant: "error", description: (err as Error).message });
+          }
         }}
         onDelete={async (hashes) => {
           if (!confirm(`Permanently delete ${hashes.length} file(s)?`)) return;
-          const next = await bulkDeleteAction(hashes);
-          await setIndex(next);
-          clearSelection();
+          try {
+            const next = await bulkDeleteAction(hashes);
+            await setIndex(next);
+            clearSelection();
+            toast({ title: `${hashes.length} file${hashes.length > 1 ? "s" : ""} deleted`, variant: "success" });
+          } catch (err) {
+            toast({ title: "Delete failed", variant: "error", description: (err as Error).message });
+          }
         }}
         onRestore={async (hashes) => {
-          const next = await bulkRestoreAction(hashes);
-          await setIndex(next);
-          clearSelection();
+          try {
+            const next = await bulkRestoreAction(hashes);
+            await setIndex(next);
+            clearSelection();
+            toast({ title: `${hashes.length} file${hashes.length > 1 ? "s" : ""} restored`, variant: "success" });
+          } catch (err) {
+            toast({ title: "Restore failed", variant: "error", description: (err as Error).message });
+          }
         }}
         onMoveToFolder={(hashes) => setBulkMovePicker(hashes)}
         onRemoveFromFolder={async (hashes) => {
           if (!currentFolder) return;
-          const next = await removeFromFolderAction(hashes, currentFolder);
-          await setIndex(next);
-          clearSelection();
+          try {
+            const next = await removeFromFolderAction(hashes, currentFolder);
+            await setIndex(next);
+            clearSelection();
+            toast({ title: "Removed from folder", variant: "success" });
+          } catch (err) {
+            toast({ title: "Remove failed", variant: "error", description: (err as Error).message });
+          }
         }}
         onStar={async (hashes) => {
-          const next = await bulkStarAction(hashes);
-          await setIndex(next);
+          try {
+            const next = await bulkStarAction(hashes);
+            await setIndex(next);
+            toast({ title: "Updated", variant: "success" });
+          } catch (err) {
+            toast({ title: "Star failed", variant: "error", description: (err as Error).message });
+          }
         }}
       />
 

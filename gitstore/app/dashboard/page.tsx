@@ -26,6 +26,9 @@ import {
 } from "@/app/dashboard/actions";
 import { DropZone } from "@/components/upload/DropZone";
 import { NewFolderDialog } from "@/components/ui/NewFolderDialog";
+import { GridSkeleton, ListSkeleton } from "@/components/ui/loading/LoadingSkeleton";
+import { PendingButton } from "@/components/ui/loading/PendingButton";
+import { useToast } from "@/components/ui/toast/ToastContext";
 import type { FileRecord } from "@/types";
 
 interface FolderEntry {
@@ -35,6 +38,7 @@ interface FolderEntry {
 
 export default function DashboardPage() {
   const { index, loading, error, setIndex } = useIndex();
+  const { toast } = useToast();
   const params = useSearchParams();
   const router = useRouter();
 
@@ -176,23 +180,23 @@ export default function DashboardPage() {
   if (loading) {
     return (
       <section className="space-y-4">
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
-          {Array.from({ length: 12 }).map((_, idx) => (
-            <div
-              key={idx}
-              className="h-40 animate-pulse rounded-xl bg-gray-200 dark:bg-gray-700"
-            />
-          ))}
-        </div>
+        {mode === "list" ? <ListSkeleton rows={10} /> : <GridSkeleton cards={12} />}
       </section>
     );
   }
 
   if (error || !index) {
     return (
-      <p className="rounded-lg bg-red-50 p-4 text-sm text-red-600 dark:bg-red-950/20">
-        {error ?? "Failed to load index"}
-      </p>
+      <div className="flex flex-col items-center gap-4 rounded-xl border border-red-900/30 bg-red-950/10 p-8 text-center">
+        <p className="text-sm font-medium text-red-400">{error ?? "Failed to load index"}</p>
+        <button
+          type="button"
+          onClick={() => window.location.reload()}
+          className="rounded-lg border border-red-800/40 px-4 py-2 text-sm text-red-400 hover:bg-red-950/30 transition"
+        >
+          Try again
+        </button>
+      </div>
     );
   }
 
