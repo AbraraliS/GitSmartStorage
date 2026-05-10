@@ -8,61 +8,51 @@ import {
   FolderOpenIcon,
 } from "lucide-react";
 import type { GitStoreIndex } from "@/types";
+import { buildFileTree } from "@/lib/filesystem";
 
-// ─── Tree building ────────────────────────────────────────────────────────────
+// ─── Picker folder node type ──────────────────────────────────────────────────
 
-export interface FolderNode {
+export interface PickerFolderNode {
   path: string;
   name: string;
   parent: string;
-  children: FolderNode[];
+  children: PickerFolderNode[];
 }
 
-export function buildFolderTree(index: GitStoreIndex): FolderNode[] {
-  const folders = index.folders ?? {};
-  const allPaths = new Set<string>();
+/** @deprecated Use buildFileTree from lib/filesystem instead */
+export interface FolderNode extends PickerFolderNode {}
 
-  Object.keys(folders).forEach((p) => allPaths.add(p));
-  Object.values(index.files).forEach((f) => {
-    (f.folders ?? []).forEach((fp) => {
-      if (fp && fp !== "/") allPaths.add(fp);
-    });
-  });
+/**
+ * Builds a picker-compatible folder tree from the filesystem engine.
+ * All folders visible in the virtual filesystem are included.
+ */
+export function buildFolderTree(index: GitStoreIndex): PickerFolderNode[] {
+  const tree = buildFileTree(index);
 
-  const nodeMap = new Map<string, FolderNode>();
-  allPaths.forEach((path) => {
-    const parts = path.split("/").filter(Boolean);
-    const name = parts[parts.length - 1] ?? path;
-    const parent = parts.length > 1 ? parts.slice(0, -1).join("/") : "/";
-    nodeMap.set(path, { path, name, parent, children: [] });
-  });
-
-  const roots: FolderNode[] = [];
-  nodeMap.forEach((node) => {
-    if (node.parent === "/") {
-      roots.push(node);
-    } else {
-      const parentNode = nodeMap.get(node.parent);
-      if (parentNode) {
-        parentNode.children.push(node);
-      } else {
-        roots.push(node);
-      }
-    }
-  });
-
-  const sortNodes = (nodes: FolderNode[]) => {
-    nodes.sort((a, b) => a.name.localeCompare(b.name));
-    nodes.forEach((n) => sortNodes(n.children));
+  const toPickerNode = (path: string): PickerFolderNode | null => {
+    const node = tree.nodes.get(path);
+    if (!node || node.type !== "folder") return null;
+    const childFolders = node.children
+      .filter((c) => tree.nodes.get(c)?.type === "folder")
+      .map((c) => toPickerNode(c))
+      .filter((n): n is PickerFolderNode => n !== null);
+    return {
+      path: node.path,
+      name: node.name,
+      parent: node.parentPath ?? "/",
+      children: childFolders,
+    };
   };
-  sortNodes(roots);
 
-  return roots;
+  return tree.rootChildren
+    .filter((p) => tree.nodes.get(p)?.type === "folder")
+    .map((p) => toPickerNode(p))
+    .filter((n): n is PickerFolderNode => n !== null);
 }
 
-export function flattenTree(roots: FolderNode[]): string[] {
+export function flattenTree(roots: PickerFolderNode[]): string[] {
   const result: string[] = [];
-  const collect = (nodes: FolderNode[]) => {
+  const collect = (nodes: PickerFolderNode[]) => {
     nodes.forEach((n) => {
       result.push(n.path);
       collect(n.children);
@@ -82,7 +72,7 @@ function FolderTreeItem({
   disabledPaths,
   highlightPath,
 }: {
-  node: FolderNode;
+  node: PickerFolderNode;
   selected: string;
   onSelect: (path: string) => void;
   depth: number;

@@ -51,7 +51,7 @@ const UploadContext = createContext<UploadContextValue | null>(null);
 
 export function UploadProvider({ children }: { children: ReactNode }) {
   const { data: session } = useSession();
-  const { index, refresh } = useIndex();
+  const { index, refresh, optimisticAddFile } = useIndex();
 
   const [uploads, setUploads] = useState<UploadItem[]>([]);
   const [minimized, setMinimized] = useState(false);
@@ -178,7 +178,18 @@ export function UploadProvider({ children }: { children: ReactNode }) {
           fixedEncoding: true,
         };
 
-        // Single index write — no second write from enrichUploadedFileAction
+        // ── Optimistic UI update ──────────────────────────────────────────
+        // Insert the file record into the local index immediately so it
+        // appears in My Files WITHOUT waiting for GitHub remote sync.
+        await optimisticAddFile(record);
+
+        updateItem(id, {
+          status: "uploading",
+          uploadedChunks: 0,
+          totalChunks: result.chunks.length || 1,
+        });
+
+        // Single index write — persist to GitHub
         const res = await fetch("/api/upload/complete", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -189,7 +200,8 @@ export function UploadProvider({ children }: { children: ReactNode }) {
           throw new Error((err as { error?: string }).error ?? "Upload commit failed");
         }
 
-        await refresh(true);
+        // Background sync to confirm GitHub round-trip (non-blocking for UI)
+        void refresh(true).catch(() => {});
 
         updateItem(id, {
           status: "done",
@@ -205,7 +217,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
         });
       }
     },
-    [session, index, updateItem, maybeAutoDismiss, refresh]
+    [session, index, updateItem, maybeAutoDismiss, refresh, optimisticAddFile]
   );
 
   // ── folder picker handlers ────────────────────────────────────────────────

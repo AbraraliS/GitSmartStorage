@@ -33,21 +33,27 @@ export interface RepoShard {
 }
 
 export interface FileRecord {
-  /** First 6 chars of SHA-256 hash — used as primary key */
+  /** First 12 hex chars of upload-key hash — primary key */
   hash: string;
-  /** Original content hash. Helpful when hash becomes a derived recordKey. */
+  /** Original content hash. */
   contentHash?: string;
   name: string;
   /** Target data node id */
   node: string;
-  /** File path inside the repo, e.g. "2024/vacation.jpg" */
+  /**
+   * Canonical virtual filesystem path for this file, e.g. "Work/Reports/2026/report.pdf".
+   * This is the SINGLE SOURCE OF TRUTH for filesystem placement.
+   * When set, the file appears at this location in the virtual tree.
+   * Legacy files may use `folders[]` instead — the filesystem engine normalizes both.
+   */
   path: string;
+  /** Size in bytes */
   size: number;
   type: string;
   tags: string[];
   created: string;
   sync_status: "synced" | "syncing" | "error" | "pending";
-  /** Set for chunked files — array of chunk paths inside repo */
+  /** Set for chunked files — array of chunk storage paths inside repo */
   chunks?: string[];
   /** Whether file was stored via Git LFS */
   lfs?: boolean;
@@ -57,7 +63,11 @@ export interface FileRecord {
   iv?: string;
   /** Base64-encoded raw AES-256-GCM key exported from SubtleCrypto (stored in private index.json) */
   encryptionKey?: string;
-  /** Folder paths this file belongs to, e.g. ["Trips/2024/Japan", "Favourites"] */
+  /**
+   * @deprecated Use `path` (virtualPath) instead.
+   * Legacy field: folder paths this file belongs to.
+   * Migration: filesystem engine reads this and converts to path-based placement.
+   */
   folders?: string[];
   /** GitHub repo shard that stores this file's blob/chunks. */
   repo?: string;
@@ -90,13 +100,85 @@ export interface GitStoreIndex {
   version?: number;
 }
 
+// ─── Virtual Filesystem Types ────────────────────────────────────────────────
+
+/** Segment of a path for breadcrumb rendering */
+export interface PathSegment {
+  label: string;
+  /** Navigable path (undefined for the last/current segment) */
+  path: string;
+  isLast: boolean;
+}
+
+/** Shared base for all filesystem nodes */
+export interface BaseNode {
+  /** Deterministic ID derived from path hash */
+  id: string;
+  /** Display name (last path segment) */
+  name: string;
+  /** Full virtual path, e.g. "Work/Reports/2026" */
+  path: string;
+  /** Parent path, null for root-level nodes */
+  parentPath: string | null;
+  /** ISO creation timestamp */
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** A file leaf node in the virtual filesystem */
+export interface FileNode extends BaseNode {
+  type: "file";
+  record: FileRecord;
+  size: number;
+  mimeType: string;
+}
+
+/** A folder node in the virtual filesystem */
+export interface FolderNode extends BaseNode {
+  type: "folder";
+  /** Paths of direct children (files and folders) */
+  children: string[];
+  /** Total file count (recursive) */
+  fileCount: number;
+  /** Total size in bytes (recursive) */
+  totalSize: number;
+  /** Whether this folder was explicitly created (vs. auto-derived from file paths) */
+  explicit?: boolean;
+  /** Whether folder is starred */
+  starred?: boolean;
+  /** Whether the folder is expanded in the UI */
+  expanded?: boolean;
+  /** Cover thumbnail hash */
+  coverId?: string;
+}
+
+export type FSNode = FileNode | FolderNode;
+
+/**
+ * O(1) path → node lookup map.
+ * Root-level entries are children of the synthetic "/" root.
+ */
+export type FileSystemMap = Map<string, FSNode>;
+
+/** The top-level filesystem structure returned by buildFileTree() */
+export interface FileTree {
+  /** All nodes keyed by path */
+  nodes: FileSystemMap;
+  /** Paths of direct root-level nodes (sorted: folders first, then files) */
+  rootChildren: string[];
+  /** Total file count across entire tree */
+  totalFiles: number;
+  /** Total size across entire tree */
+  totalSize: number;
+}
+
 // ─── Upload Pipeline ────────────────────────────────────────────────────────
 
 export interface UploadChunk {
   index: number;
   /** Base64 string (single-encoded) — ready for the GitHub Contents API content field. */
   data: string;
-  path: string; // path inside repo
+  path: string; // storage path inside repo
   sha?: string; // existing blob SHA (for updates)
   /** Base64-encoded 12-byte AES-GCM IV for this chunk (set when encryption is enabled) */
   iv?: string;
@@ -121,6 +203,7 @@ export interface FilterOptions {
   dateTo?: string;
   minSize?: number;    // bytes
   maxSize?: number;
+  folderPath?: string; // restrict to a specific folder path
 }
 
 // ─── Background Jobs ────────────────────────────────────────────────────────

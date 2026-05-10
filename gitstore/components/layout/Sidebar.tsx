@@ -36,6 +36,7 @@ import { NewButton } from "@/components/layout/NewButton";
 import { useIndex } from "@/components/providers/IndexContext";
 import { useUpload } from "@/components/providers/UploadContext";
 import { getFolderStats, getSubFoldersOf } from "@/lib/index";
+import { buildFileTree } from "@/lib/filesystem";
 import { NODE_DEFINITIONS } from "@/lib/nodes";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { RenameDialog } from "@/components/ui/RenameDialog";
@@ -150,7 +151,24 @@ export function Sidebar() {
     [index]
   );
 
-  const rootFolders = useMemo(() => getSubFoldersOf(safeIndex, "/"), [safeIndex]);
+  // Build the complete filesystem tree (memoized — only rebuilds when index changes)
+  const fileTree = useMemo(() => buildFileTree(safeIndex), [safeIndex]);
+
+  const rootFolders = useMemo(() => {
+    // Use buildFileTree to derive the complete folder hierarchy
+    // (includes both explicit folders and those derived from file paths)
+    return fileTree.rootChildren
+      .map((p) => fileTree.nodes.get(p))
+      .filter((n) => n?.type === "folder")
+      .map((n) => ({
+        id: n!.path,
+        name: n!.name,
+        path: n!.path,
+        parent: n!.parentPath ?? "/",
+        created: n!.createdAt,
+        starred: n!.type === "folder" ? n.starred : undefined,
+      }));
+  }, [fileTree]);
 
   const nodeCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -230,7 +248,16 @@ export function Sidebar() {
       const stats = getFolderStats(safeIndex, folder.path);
       const itemKey = `folder:${folder.path}`;
       const isCollapsed = collapsed[itemKey] ?? false;
-      const hasChildren = getSubFoldersOf(safeIndex, folder.path).length > 0;
+      // Use filesystem tree for child lookups (picks up auto-derived folders)
+      const folderNode = fileTree.nodes.get(folder.path);
+      const subfolderPaths = folderNode?.type === "folder"
+        ? folderNode.children.filter((c) => fileTree.nodes.get(c)?.type === "folder")
+        : [];
+      const subfolders = subfolderPaths.map((p) => {
+        const n = fileTree.nodes.get(p);
+        return n ? { id: p, name: n.name, path: p, parent: folder.path, created: n.createdAt, starred: n.type === "folder" ? n.starred : undefined } : null;
+      }).filter(Boolean) as typeof rootFolders;
+      const hasChildren = subfolders.length > 0;
       const isActive = view === "folder" && activePath === folder.path;
 
       return (
@@ -242,7 +269,7 @@ export function Sidebar() {
                 : "text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
             }`}
             style={{ marginLeft: `${depth * 14}px` }}
-            onContextMenu={(event) => {
+          onContextMenu={(event) => {
               event.preventDefault();
               setMenu({ path: folder.path, x: event.clientX, y: event.clientY });
             }}
@@ -284,7 +311,7 @@ export function Sidebar() {
               <MoreVerticalIcon className="h-3.5 w-3.5" />
             </button>
           </div>
-          {!isCollapsed && renderFolderTree(getSubFoldersOf(safeIndex, folder.path), depth + 1)}
+          {!isCollapsed && renderFolderTree(subfolders, depth + 1)}
         </div>
       );
     });

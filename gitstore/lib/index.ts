@@ -288,21 +288,47 @@ export function incrementShardSize(
   index.repoShards![nodeId] = shards;
 }
 
+/**
+ * Ensure all ancestor folders exist in the index, creating them if needed.
+ * Never throws — safe to call before any folder write.
+ */
+export function ensureFolderPathExists(
+  index: GitStoreIndex,
+  folderPath: string,
+  node = "documents"
+): void {
+  ensureIndexCollections(index);
+  try {
+    const normalizedPath = normalizeFolderValue(folderPath);
+    createFolder(index, normalizedPath, node);
+  } catch {
+    // normalizeFolderValue may throw for invalid paths — swallow and skip
+  }
+}
+
 export function addFileToFolder(index: GitStoreIndex, fileHash: string, folderPath: string): void {
   ensureIndexCollections(index);
   const record = index.files[fileHash];
   if (!record) return;
 
-  const normalizedPath = normalizeFolderValue(folderPath);
+  let normalizedPath: string;
+  try {
+    normalizedPath = normalizeFolderValue(folderPath);
+  } catch {
+    return; // invalid path — skip silently
+  }
+
+  // Auto-create the folder and all ancestors if they don't exist
   if (!index.folders?.[normalizedPath]) {
-    throw new Error(`Folder \"${normalizedPath}\" does not exist`);
+    const node = index.nodes[record.node]?.id ?? "documents";
+    ensureFolderPathExists(index, normalizedPath, node);
   }
 
   const folders = new Set(getRecordFolders(record));
   folders.add(normalizedPath);
   record.folders = Array.from(folders);
 
-  if (isImageFile(record) && !index.folders[normalizedPath].coverId) {
+  if (index.folders?.[normalizedPath] && isImageFile(record) && !index.folders[normalizedPath].coverId) {
     index.folders[normalizedPath].coverId = fileHash;
   }
 }

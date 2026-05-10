@@ -107,8 +107,6 @@ export default function UploadPage() {
           created: new Date().toISOString(),
           sync_status: "syncing",
           chunks: result.chunks.length > 1 ? result.chunks : undefined,
-          iv: result.iv,
-          encryptionKey: result.encryptionKey,
         };
 
         setPendingRecords((prev) => [...prev, record]);

@@ -5,28 +5,35 @@ import type { FileRecord } from "@/types";
 import { formatBytes, formatDate } from "@/lib/format";
 import { DownloadIcon, StarIcon, Trash2Icon } from "lucide-react";
 import { useIndex } from "@/components/providers/IndexContext";
-import { moveToTrashAction, toggleStarAction } from "@/app/dashboard/actions";
+import { moveToTrashAction, toggleStarAction, bulkTrashAction, bulkDeleteAction, bulkRestoreAction, bulkMoveToFolderAction, removeFromFolderAction, bulkStarAction } from "@/app/dashboard/actions";
 import { PreviewModal } from "@/components/preview/PreviewModal";
 import { BulkActionBar } from "@/components/files/BulkActionBar";
+import { useSelection } from "@/components/providers/SelectionContext";
+import { MoveDialog } from "@/components/ui/MoveDialog";
+import { useSearchParams } from "next/navigation";
 
 export function FileList({ files, currentFolder, isFolderView }: { files: FileRecord[]; currentFolder?: string; isFolderView: boolean }) {
-  const { setIndex } = useIndex();
+  const { setIndex, index: indexData, refresh } = useIndex();
+  const { selected, clearSelection, toggle, selectAll } = useSelection();
+  const params = useSearchParams();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [hoverRow, setHoverRow] = useState<string | null>(null);
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
-  const [selected, setSelected] = useState<Record<string, boolean>>({});
+  const [bulkMovePicker, setBulkMovePicker] = useState<string[] | null>(null);
 
-  const selectedFiles = useMemo(() => files.filter((file) => selected[file.hash]), [files, selected]);
-  const allSelected = files.length > 0 && selectedFiles.length === files.length;
+  const selectedFiles = useMemo(() => files.filter((file) => selected.has(file.hash)), [files, selected]);
+  const allHashes = files.map((f) => f.hash);
+
+  const safeIndex = indexData ?? { files: {}, nodes: {}, search_index: {}, folders: {}, repoShards: {}, updated_at: "", version: 2 };
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setSelected({});
+      if (event.key === "Escape") clearSelection();
     };
     const onPointerDown = (event: MouseEvent) => {
       if (!containerRef.current) return;
       if (!containerRef.current.contains(event.target as Node)) {
-        setSelected({});
+        clearSelection();
       }
     };
 
@@ -36,7 +43,7 @@ export function FileList({ files, currentFolder, isFolderView }: { files: FileRe
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("mousedown", onPointerDown);
     };
-  }, []);
+  }, [clearSelection]);
 
   return (
     <>
@@ -47,13 +54,13 @@ export function FileList({ files, currentFolder, isFolderView }: { files: FileRe
               <th className="w-10 px-3 py-2">
                 <input
                   type="checkbox"
-                  checked={allSelected}
+                  checked={allHashes.length > 0 && allHashes.every((h) => selected.has(h))}
                   onChange={() => {
-                    if (allSelected) {
-                      setSelected({});
-                      return;
+                    if (allHashes.every((h) => selected.has(h))) {
+                      clearSelection();
+                    } else {
+                      selectAll(allHashes);
                     }
-                    setSelected(Object.fromEntries(files.map((file) => [file.hash, true])));
                   }}
                   aria-label="Select all files"
                 />
@@ -77,8 +84,8 @@ export function FileList({ files, currentFolder, isFolderView }: { files: FileRe
                 <td className="px-3 py-2 align-middle">
                   <input
                     type="checkbox"
-                    checked={!!selected[file.hash]}
-                    onChange={() => setSelected((current) => ({ ...current, [file.hash]: !current[file.hash] }))}
+                    checked={selected.has(file.hash)}
+                    onChange={() => toggle(file.hash)}
                     aria-label={`Select ${file.name}`}
                   />
                 </td>
@@ -134,11 +141,54 @@ export function FileList({ files, currentFolder, isFolderView }: { files: FileRe
       </div>
 
       <BulkActionBar
-        selectedFiles={selectedFiles}
-        currentFolder={currentFolder}
-        isFolderView={isFolderView}
-        onClear={() => setSelected({})}
+        inTrash={params.get("view") === "trash"}
+        currentFolder={isFolderView ? currentFolder : undefined}
+        allHashes={allHashes}
+        onTrash={async (hashes) => {
+          const next = await bulkTrashAction(hashes);
+          await setIndex(next);
+          clearSelection();
+        }}
+        onDelete={async (hashes) => {
+          if (!confirm(`Permanently delete ${hashes.length} file(s)?`)) return;
+          const next = await bulkDeleteAction(hashes);
+          await setIndex(next);
+          clearSelection();
+        }}
+        onRestore={async (hashes) => {
+          const next = await bulkRestoreAction(hashes);
+          await setIndex(next);
+          clearSelection();
+        }}
+        onMoveToFolder={(hashes) => setBulkMovePicker(hashes)}
+        onRemoveFromFolder={async (hashes) => {
+          if (!currentFolder) return;
+          const next = await removeFromFolderAction(hashes, currentFolder);
+          await setIndex(next);
+          clearSelection();
+        }}
+        onStar={async (hashes) => {
+          const next = await bulkStarAction(hashes);
+          await setIndex(next);
+        }}
       />
+
+      {bulkMovePicker && indexData && (
+        <MoveDialog
+          open
+          itemName={`${bulkMovePicker.length} items`}
+          itemType="file"
+          currentLocation="/"
+          index={safeIndex}
+          onConfirm={async (dest) => {
+            const next = await bulkMoveToFolderAction(bulkMovePicker, dest);
+            await setIndex(next);
+            clearSelection();
+            setBulkMovePicker(null);
+          }}
+          onCancel={() => setBulkMovePicker(null)}
+        />
+      )}
 
       {previewIndex !== null && (
         <PreviewModal files={files} currentIndex={previewIndex} onClose={() => setPreviewIndex(null)} onNavigate={setPreviewIndex} />
