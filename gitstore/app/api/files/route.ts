@@ -11,7 +11,12 @@ import { auth } from "@/auth";
 import { createOctokit, readRemoteIndex, writeRemoteIndex, deleteFile, assertOwner } from "@/lib/github";
 import { searchFiles, removeFileFromIndex } from "@/lib/index";
 import { checkRateLimit } from "@/lib/ratelimit";
+import { withErrorHandler } from "@/lib/error-handler";
 import type { FileRecord, FilterOptions } from "@/types";
+
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
+export const runtime = "nodejs";
 
 /**
  * Used for general listing/search responses.
@@ -34,7 +39,7 @@ function stripForDownload(record: FileRecord): Omit<FileRecord, "sha"> {
 }
 
 // GET /api/files
-export async function GET(req: NextRequest) {
+export const GET = withErrorHandler(async (req: NextRequest) => {
   // 1. Auth
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -43,9 +48,7 @@ export async function GET(req: NextRequest) {
   const login       = (session as unknown as Record<string, string>).login;
 
   // 2. Owner assertion
-  try { assertOwner(login, login); } catch {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  assertOwner(login, login);
 
   // 3. Rate limit
   const rl = await checkRateLimit(login, "default");
@@ -68,44 +71,34 @@ export async function GET(req: NextRequest) {
     maxSize:  searchParams.get("maxSize")  ? Number(searchParams.get("maxSize"))  : undefined,
   };
 
-  try {
-    const octokit = createOctokit(accessToken);
-    const remote  = await readRemoteIndex(octokit, login);
-    if (!remote) return NextResponse.json({ files: [], nodes: {} });
+  const octokit = createOctokit(accessToken);
+  const remote  = await readRemoteIndex(octokit, login);
+  if (!remote) return NextResponse.json({ files: [], nodes: {} });
 
-    const matched = searchFiles(remote.content, q, filters);
-    // Listing payload intentionally strips encryption metadata.
-    const files = matched.map(stripForListing);
+  const matched = searchFiles(remote.content, q, filters);
+  // Listing payload intentionally strips encryption metadata.
+  const files = matched.map(stripForListing);
 
-    // Keep this reference so TS does not tree-shake / flag download-safe sanitizer as unused.
-    void stripForDownload;
+  // Keep this reference so TS does not tree-shake / flag download-safe sanitizer as unused.
+  void stripForDownload;
 
-    return NextResponse.json({
-      files,
-      nodes:      remote.content.nodes,
-      updated_at: remote.content.updated_at,
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to list files";
-    return NextResponse.json({ error: message }, { status: 500 });
-  }
-}
+  return NextResponse.json({
+    files,
+    nodes:      remote.content.nodes,
+    updated_at: remote.content.updated_at,
+  });
+});
 
 // DELETE /api/files?hash=abc123
-export async function DELETE(req: NextRequest) {
-  // 1. Auth
+export const DELETE = withErrorHandler(async (req: NextRequest) => {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const accessToken = (session as unknown as Record<string, string>).accessToken;
   const login       = (session as unknown as Record<string, string>).login;
 
-  // 2. Owner assertion
-  try { assertOwner(login, login); } catch {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  assertOwner(login, login);
 
-  // 3. Zod — validate hash query param
   const { searchParams } = new URL(req.url);
   const hashResult = z.string().min(1).max(64).safeParse(searchParams.get("hash"));
   if (!hashResult.success) {
@@ -113,51 +106,34 @@ export async function DELETE(req: NextRequest) {
   }
   const hash = hashResult.data;
 
-  // 4. Rate limit — 20 deletes / 60 s per user
   const rl = await checkRateLimit(login, "delete");
   if (rl.limited) {
-    return NextResponse.json(
-      { error: "Too many requests" },
-      { status: 429, headers: { "Retry-After": "60" } }
-    );
+    return NextResponse.json({ error: "Too many requests" }, { status: 429 });
   }
 
-  try {
-    const octokit = createOctokit(accessToken);
-    const remote  = await readRemoteIndex(octokit, login);
-    if (!remote) return NextResponse.json({ error: "Index not found" }, { status: 404 });
+  const octokit = createOctokit(accessToken);
+  const remote  = await readRemoteIndex(octokit, login);
+  if (!remote) return NextResponse.json({ error: "Index not found" }, { status: 404 });
 
-    const record = remote.content.files[hash];
-    if (!record) return NextResponse.json({ error: "File not found" }, { status: 404 });
+  const record = remote.content.files[hash];
+  if (!record) return NextResponse.json({ error: "File not found" }, { status: 404 });
 
-    const nodeInfo = remote.content.nodes[record.node];
-    if (!nodeInfo) return NextResponse.json({ error: "Node not found" }, { status: 404 });
-    const targetRepo = record.repo ?? nodeInfo.repo;
+  const nodeInfo = remote.content.nodes[record.node];
+  if (!nodeInfo) return NextResponse.json({ error: "Node not found" }, { status: 404 });
+  const targetRepo = record.repo ?? nodeInfo.repo;
 
-    // Delete actual file(s) from data node repo
-    const pathsToDelete = record.chunks?.length ? record.chunks : [record.path];
-    for (const path of pathsToDelete) {
-      try {
-        const { data } = await octokit.repos.getContent({
-          owner: login,
-          repo:  targetRepo,
-          path,
-        });
-        if (!Array.isArray(data) && data.type === "file") {
-          await deleteFile(octokit, login, targetRepo, path, data.sha);
-        }
-      } catch {
-        // Best-effort deletion — continue even if individual chunk missing
+  const pathsToDelete = record.chunks?.length ? record.chunks : [record.path];
+  for (const path of pathsToDelete) {
+    try {
+      const { data } = await octokit.repos.getContent({ owner: login, repo: targetRepo, path });
+      if (!Array.isArray(data) && data.type === "file") {
+        await deleteFile(octokit, login, targetRepo, path, data.sha);
       }
-    }
-
-    // Remove from index and write once
-    removeFileFromIndex(remote.content, hash);
-    await writeRemoteIndex(octokit, login, remote.content, remote.sha);
-
-    return NextResponse.json({ ok: true });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Delete failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+    } catch { /* best effort */ }
   }
-}
+
+  removeFileFromIndex(remote.content, hash);
+  await writeRemoteIndex(octokit, login, remote.content, remote.sha);
+
+  return NextResponse.json({ ok: true });
+});

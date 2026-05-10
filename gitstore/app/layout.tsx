@@ -14,6 +14,15 @@ export const metadata: Metadata = {
   title: "GitStore — GitHub-backed File Storage",
   description:
     "Store, manage, search, and retrieve files of any format using your GitHub account as storage backend.",
+  icons: {
+    icon: "/logo.png",
+    apple: "/logo.png",
+  },
+  openGraph: {
+    title: "GitStore",
+    description: "Secure GitHub-backed file storage",
+    images: ["/logo.png"],
+  },
 };
 
 export default function RootLayout({

@@ -1,22 +1,22 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { createOctokit, readRemoteIndex } from "@/lib/github";
+import { withErrorHandler } from "@/lib/api-utils";
+import { env } from "@/lib/env";
 
-/**
- * GET /api/debug/upload-test
- * Development-only endpoint to verify upload encoding is correct.
- * Visit after uploading a new file — likelyDoubleEncoded should be false.
- */
-export async function GET() {
-  if (process.env.NODE_ENV !== "development") {
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
+
+async function handler() {
+  if (env.NODE_ENV !== "development") {
     return NextResponse.json({ error: "Not available" }, { status: 404 });
   }
 
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const accessToken = (session as unknown as Record<string, string>).accessToken;
-  const login = (session as unknown as Record<string, string>).login;
+  const accessToken = (session as any).accessToken;
+  const login = (session as any).login;
 
   const octokit = createOctokit(accessToken);
   const remote = await readRemoteIndex(octokit, login);
@@ -50,7 +50,7 @@ export async function GET() {
         const sample = decoded.slice(0, 100).toString("ascii");
         const isDoubleEncoded = /^[A-Za-z0-9+/=\r\n]+$/.test(sample) && decoded.length > 20;
 
-        // Encrypted bytes (AES-GCM ciphertext) should have high entropy — random byte distribution
+        // Encrypted bytes (AES-GCM ciphertext) should have high entropy
         const highByteCount = Array.from(decoded.slice(0, 100)).filter((b) => b > 127).length;
 
         results.push({
@@ -77,3 +77,5 @@ export async function GET() {
     files: results,
   });
 }
+
+export const GET = withErrorHandler(handler);

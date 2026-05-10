@@ -1,6 +1,7 @@
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import { SignInButton } from "@/components/auth/SignInButton";
+import Image from "next/image";
 
 export default async function HomePage() {
   const session = await auth();
@@ -10,11 +11,14 @@ export default async function HomePage() {
     <main className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 px-4">
       {/* Logo */}
       <div className="mb-8 flex items-center gap-3">
-        <div className="w-12 h-12 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center">
-          <svg className="w-7 h-7 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-              d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-          </svg>
+        <div className="relative w-12 h-12 overflow-hidden rounded-xl border border-white/10">
+          <Image
+            src="/logo.png"
+            alt="GitStore Logo"
+            fill
+            className="object-cover scale-110"
+            priority
+          />
         </div>
         <span className="text-3xl font-bold tracking-tight">
           Git<span className="text-emerald-400">Store</span>

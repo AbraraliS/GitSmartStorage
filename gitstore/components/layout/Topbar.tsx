@@ -20,6 +20,7 @@
  */
 
 import { useState } from "react";
+import Image from "next/image";
 import { MenuIcon, XIcon } from "lucide-react";
 import { signOut, useSession } from "next-auth/react";
 import { SearchBar } from "@/components/files/SearchBar";
@@ -46,6 +47,16 @@ export function Topbar() {
         >
           <MenuIcon className="h-5 w-5" />
         </button>
+
+        {/* Logo */}
+        <div className="relative h-8 w-8 shrink-0 overflow-hidden rounded-lg border border-white/10 shadow-sm">
+          <Image
+            src="/logo.png"
+            alt="GitStore Logo"
+            fill
+            className="object-cover scale-110"
+          />
+        </div>
 
         {/* Wordmark */}
         <span className="select-none text-base font-bold tracking-tight text-gray-900 dark:text-gray-100">

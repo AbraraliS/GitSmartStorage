@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, type ComponentType } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArchiveIcon,
@@ -48,6 +49,7 @@ import { getActiveSmartCollections } from "@/lib/smart";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { RenameDialog } from "@/components/ui/RenameDialog";
 import { MoveDialog } from "@/components/ui/MoveDialog";
+import { ClientPortal } from "@/components/ui/ClientPortal";
 
 const SMART_ICONS: Record<string, ComponentType<{ className?: string }>> = {
   ImageIcon,
@@ -296,12 +298,13 @@ export function Sidebar() {
               type="button"
               className="rounded p-1 opacity-0 transition-opacity hover:bg-gray-200 group-hover:opacity-100 dark:hover:bg-gray-700"
               onClick={(event) => {
+                event.stopPropagation();
                 const rect = (event.currentTarget as HTMLButtonElement).getBoundingClientRect();
                 openFolderMenuAt(folder.path, rect.left, rect.bottom + 4);
               }}
               aria-label="Folder options"
             >
-              <MoreVerticalIcon className="h-3.5 w-3.5" />
+              <MoreVerticalIcon className="h-3.5 w-3.5 text-gray-500" />
             </button>
           </div>
           {!isCollapsed && renderFolderTree(subfolders, depth + 1)}
@@ -320,8 +323,14 @@ export function Sidebar() {
           {showLabels ? (
             <div className="flex items-center gap-3 min-w-0">
               {/* Logo Icon */}
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white shadow-lg shadow-blue-500/20">
-                <HardDriveIcon className="h-5 w-5" />
+              <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-xl border border-white/10 shadow-lg shadow-blue-500/10">
+                <Image
+                  src="/logo.png"
+                  alt="GitStore Logo"
+                  fill
+                  className="object-cover scale-110"
+                  priority
+                />
               </div>
               
               {/* Branding Text */}
@@ -437,7 +446,7 @@ export function Sidebar() {
                               : "text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
                           } ${!showLabels ? "justify-center" : ""}`}
                         >
-                          <span className={`flex items-center truncate ${!showLabels ? "justify-center" : "gap-2"}`}>
+                          <span className={`flex items-center gap-2 truncate ${!showLabels ? "justify-center" : ""}`}>
                             <Icon className="h-4 w-4 shrink-0" />
                             {showLabels && <span className="truncate">{collection.label}</span>}
                           </span>
@@ -453,33 +462,31 @@ export function Sidebar() {
             )}
           </section>
 
-          {showLabels && (
-            <section className="space-y-2">
-              <SectionHeader
-                title="My Folders"
-                collapsed={sectionCollapsed.folders}
-                onToggle={() => toggleSection("folders")}
-                extra={
-                  <button
-                    type="button"
-                    className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
-                    onClick={() => window.dispatchEvent(new Event("gitstore:new-folder"))}
-                    aria-label="Create folder"
-                  >
-                    <PlusIcon className="h-4 w-4" />
-                  </button>
-                }
-              />
-              {!sectionCollapsed.folders && (
-                <div className="space-y-1">
-                  {rootFolders.length === 0 && !loading && (
-                    <p className="px-3 py-2 text-xs text-gray-400">No folders yet</p>
-                  )}
-                  {renderFolderTree(rootFolders, 0)}
-                </div>
-              )}
-            </section>
-          )}
+          <section className="space-y-2">
+            <SectionHeader
+              title="My Folders"
+              collapsed={sectionCollapsed.folders}
+              onToggle={() => toggleSection("folders")}
+              extra={
+                <button
+                  type="button"
+                  className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
+                  onClick={() => window.dispatchEvent(new Event("gitstore:new-folder"))}
+                  aria-label="Create folder"
+                >
+                  <PlusIcon className="h-4 w-4" />
+                </button>
+              }
+            />
+            {!sectionCollapsed.folders && (
+              <div className={`space-y-1 ${!showLabels ? "flex flex-col items-center" : ""}`}>
+                {rootFolders.length === 0 && !loading && showLabels && (
+                  <p className="px-3 py-2 text-xs text-gray-400">No folders yet</p>
+                )}
+                {renderFolderTree(rootFolders, 0)}
+              </div>
+            )}
+          </section>
         </div>
 
         <div className="mt-4 space-y-3 px-2">
@@ -538,73 +545,93 @@ export function Sidebar() {
         {renderInnerContent(false)}
       </aside>
 
-      {/* ── Folder context menu ────────────────────────────────────────────── */}
+      {/* ── Folder context menu with Portal ───────────────────────────────── */}
       {menu && (
-        <div
-          className="fixed z-[125] min-w-44 rounded-xl border border-gray-200 bg-white py-1 shadow-lg dark:border-gray-700 dark:bg-gray-900"
-          style={{ left: menu.x, top: menu.y }}
-        >
-          {[
-            {
-              label: "Rename",
-              icon: <PencilIcon className="h-4 w-4" />,
-              onClick: () => {
-                const path = menu.path;
-                const name = path.split("/").filter(Boolean).at(-1) ?? path;
-                setMenu(null);
-                setRenameTarget({ path, name });
-              },
-            },
-            {
-              label: "Move to...",
-              icon: <FolderInputIcon className="h-4 w-4" />,
-              onClick: () => {
-                const path = menu.path;
-                const name = path.split("/").filter(Boolean).at(-1) ?? path;
-                setMenu(null);
-                setMoveTarget({ path, name });
-              },
-            },
-            {
-              label: (safeIndex.folders?.[menu.path]?.starred ?? false) ? "Unstar" : "Star",
-              icon: <StarIcon className="h-4 w-4" />,
-              onClick: async () => {
-                const currentPath = menu.path;
-                setMenu(null);
-                const next = await toggleFolderStarAction(currentPath);
-                await setIndex(next);
-              },
-            },
-            {
-              label: "Add files",
-              icon: null,
-              onClick: () => { triggerUpload({ targetFolder: menu.path }); setMenu(null); },
-            },
-          ].map((item) => (
-            <button
-              key={item.label}
-              type="button"
-              className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800"
-              onClick={item.onClick}
-            >
-              {item.icon}
-              {item.label}
-            </button>
-          ))}
-          <div className="my-1 border-t border-gray-100 dark:border-gray-800" />
-          <button
-            type="button"
-            className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
-            onClick={() => {
-              const path = menu.path;
-              const name = path.split("/").filter(Boolean).at(-1) ?? path;
-              setMenu(null);
-              setDeleteTarget({ path, name });
-            }}
+        <ClientPortal>
+          <div
+            className="fixed z-[9999] min-w-44 overflow-hidden rounded-xl border border-gray-200 bg-white py-1 shadow-2xl animate-in fade-in zoom-in duration-100 dark:border-gray-700 dark:bg-gray-900"
+            style={{ left: menu.x, top: menu.y }}
+            onMouseLeave={() => setMenu(null)}
           >
-            Delete folder
-          </button>
-        </div>
+            {[
+              {
+                label: "Rename",
+                icon: <PencilIcon className="h-4 w-4 text-gray-500" />,
+                onClick: (e: React.MouseEvent) => {
+                  e.stopPropagation();
+                  const path = menu.path;
+                  const name = path.split("/").filter(Boolean).at(-1) ?? path;
+                  setMenu(null);
+                  setRenameTarget({ path, name });
+                },
+              },
+              {
+                label: "Move to...",
+                icon: <FolderInputIcon className="h-4 w-4 text-gray-500" />,
+                onClick: (e: React.MouseEvent) => {
+                  e.stopPropagation();
+                  const path = menu.path;
+                  const name = path.split("/").filter(Boolean).at(-1) ?? path;
+                  setMenu(null);
+                  setMoveTarget({ path, name });
+                },
+              },
+              {
+                label: (safeIndex.folders?.[menu.path]?.starred ?? false) ? "Unstar" : "Star",
+                icon: (
+                  <StarIcon
+                    className={`h-4 w-4 ${
+                      safeIndex.folders?.[menu.path]?.starred
+                        ? "fill-amber-400 text-amber-400"
+                        : "text-gray-500"
+                    }`}
+                  />
+                ),
+                onClick: async (e: React.MouseEvent) => {
+                  e.stopPropagation();
+                  const currentPath = menu.path;
+                  setMenu(null);
+                  const next = await toggleFolderStarAction(currentPath);
+                  await setIndex(next);
+                },
+              },
+              {
+                label: "Add files",
+                icon: <PlusIcon className="h-4 w-4 text-gray-500" />,
+                onClick: (e: React.MouseEvent) => {
+                  e.stopPropagation();
+                  triggerUpload({ targetFolder: menu.path });
+                  setMenu(null);
+                },
+              },
+            ].map((item) => (
+              <button
+                key={item.label}
+                type="button"
+                className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800 transition-colors"
+                onClick={item.onClick}
+              >
+                {item.icon}
+                {item.label}
+              </button>
+            ))}
+            <div className="my-1 border-t border-gray-100 dark:border-gray-800" />
+            <button
+              type="button"
+              className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/20 transition-colors"
+              onClick={(e) => {
+                e.stopPropagation();
+                const path = menu.path;
+                const name = path.split("/").filter(Boolean).at(-1) ?? path;
+                setMenu(null);
+                setDeleteTarget({ path, name });
+              }}
+            >
+              <Trash2Icon className="h-4 w-4" />
+              Delete folder
+            </button>
+          </div>
+        </ClientPortal>
       )}
 
       {/* ── Rename dialog ─────────────────────────────────────────────────── */}

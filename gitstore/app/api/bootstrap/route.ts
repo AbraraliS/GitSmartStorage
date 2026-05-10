@@ -1,8 +1,3 @@
-/**
- * app/api/bootstrap/route.ts
- * POST /api/bootstrap — called on first login to create system repos + initial index.
- */
-
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import {
@@ -12,42 +7,42 @@ import {
   writeRemoteIndex,
 } from "@/lib/github";
 import { emptyIndex, addNodeToIndex } from "@/lib/index";
+import { withErrorHandler } from "@/lib/api-utils";
 
-export async function POST() {
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
+
+async function handler() {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const accessToken = (session as unknown as Record<string, string>).accessToken;
-  const login = (session as unknown as Record<string, string>).login;
+  const accessToken = (session as any).accessToken;
+  const login = (session as any).login;
 
-  try {
-    const octokit = createOctokit(accessToken);
+  const octokit = createOctokit(accessToken);
 
-    // Step 1: Create gitstore-master, gitstore-secondary, gitstore-documents
-    await bootstrapSystemRepos(octokit, login);
+  // Step 1: Create gitstore-master, gitstore-secondary, gitstore-documents
+  await bootstrapSystemRepos(octokit, login);
 
-    // Step 2: Check if index.json already exists
-    const existing = await readRemoteIndex(octokit, login);
-    if (existing) {
-      // Already bootstrapped
-      return NextResponse.json({ ok: true, bootstrapped: false, index: existing.content });
-    }
-
-    // Step 3: Create initial empty index with default documents node
-    const index = emptyIndex();
-    addNodeToIndex(index, {
-      id: "documents",
-      repo: "gitstore-documents",
-      size_mb: 0,
-      created: new Date().toISOString(),
-    });
-
-    await writeRemoteIndex(octokit, login, index);
-
-    return NextResponse.json({ ok: true, bootstrapped: true, index });
-  } catch (err) {
-    console.error("[bootstrap] Error:", err);
-    const message = err instanceof Error ? err.message : "Bootstrap failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+  // Step 2: Check if index.json already exists
+  const existing = await readRemoteIndex(octokit, login);
+  if (existing) {
+    // Already bootstrapped
+    return NextResponse.json({ ok: true, bootstrapped: false, index: existing.content });
   }
+
+  // Step 3: Create initial empty index with default documents node
+  const index = emptyIndex();
+  addNodeToIndex(index, {
+    id: "documents",
+    repo: "gitstore-documents",
+    size_mb: 0,
+    created: new Date().toISOString(),
+  });
+
+  await writeRemoteIndex(octokit, login, index);
+
+  return NextResponse.json({ ok: true, bootstrapped: true, index });
 }
+
+export const POST = withErrorHandler(handler);
