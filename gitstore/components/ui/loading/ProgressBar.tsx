@@ -1,6 +1,6 @@
 "use client";
 
-import { cn } from "@/lib/utils";
+import { cn } from "../../../lib/utils";
 
 interface ProgressBarProps {
   value: number; // 0–100

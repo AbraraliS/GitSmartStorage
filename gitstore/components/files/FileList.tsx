@@ -38,7 +38,7 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { ListContextMenu } from "@/components/files/ListContextMenu";
 import { useActionState } from "@/components/providers/ActionStateContext";
 import { useToast } from "@/components/ui/toast/ToastContext";
-import { InlineSpinner } from "@/components/ui/loading/InlineSpinner";
+import { InlineSpinner } from "@/components/ui/loading";
 
 interface FolderEntry {
   name: string;
