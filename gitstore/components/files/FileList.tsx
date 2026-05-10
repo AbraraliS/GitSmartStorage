@@ -29,6 +29,7 @@ import {
   moveToFolderAction,
   moveFolderAction,
 } from "@/app/dashboard/actions";
+import { markInternalDragReact } from "@/lib/drag-drop";
 import { PreviewModal } from "@/components/preview/PreviewModal";
 import { BulkActionBar } from "@/components/files/BulkActionBar";
 import { useSelection } from "@/components/providers/SelectionContext";
@@ -181,7 +182,12 @@ export function FileList({
             {folders.map((folder) => (
               <tr
                 key={folder.path}
-                className={rowClass(folder.path, "cursor-pointer")}
+                draggable
+                onDragStart={(e) => {
+                  markInternalDragReact(e);
+                  e.dataTransfer.setData("text/plain", folder.path);
+                }}
+                className={rowClass(folder.path, "cursor-pointer bg-blue-900/5 hover:bg-blue-900/10 dark:bg-blue-950/20 dark:hover:bg-blue-900/30 border-b border-gray-100 dark:border-gray-800")}
                 onMouseEnter={() => setHoverRow(folder.path)}
                 onMouseLeave={() => setHoverRow(null)}
                 onClick={() => count > 0 ? toggle(folder.path) : openFolder(folder.path)}
@@ -235,6 +241,11 @@ export function FileList({
             {files.map((file, idx) => (
               <tr
                 key={file.hash}
+                draggable
+                onDragStart={(e) => {
+                  markInternalDragReact(e);
+                  e.dataTransfer.setData("text/plain", file.hash);
+                }}
                 className={rowClass(file.hash, "cursor-pointer")}
                 onMouseEnter={() => setHoverRow(file.hash)}
                 onMouseLeave={() => setHoverRow(null)}

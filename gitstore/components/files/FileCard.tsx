@@ -14,6 +14,7 @@ import { formatBytes, formatDate } from "@/lib/format";
 import { getFolderStats } from "@/lib/index";
 import type { FileRecord, GitStoreIndex } from "@/types";
 import { useSelection } from "@/components/providers/SelectionContext";
+import { getDroppedFilesReact, markInternalDragReact } from "@/lib/drag-drop";
 
 const menuItemClass =
   "flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800";
@@ -38,6 +39,11 @@ export function FileCard({
 
   return (
     <article
+      draggable
+      onDragStart={(e) => {
+        markInternalDragReact(e);
+        e.dataTransfer.setData("text/plain", file.hash);
+      }}
       className={`group relative cursor-pointer rounded-xl border p-2 transition ${
         isSelectedState
           ? "border-emerald-500 ring-2 ring-emerald-500/30 bg-emerald-950/10"
@@ -67,7 +73,7 @@ export function FileCard({
       <div className="mb-2 flex h-24 items-center justify-center overflow-hidden rounded-lg bg-gray-100 dark:bg-gray-800 relative">
         {file.thumbnail ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={file.thumbnail} alt={file.name} className="h-full w-full object-cover" />
+          <img src={file.thumbnail} alt={file.name} className="h-full w-full object-cover" draggable={false} />
         ) : (
           <FileIcon className="h-9 w-9 text-gray-400" />
         )}
@@ -121,15 +127,26 @@ export function FolderCard({
 
   return (
     <div
+      draggable
+      onDragStart={(e) => {
+        markInternalDragReact(e);
+        e.dataTransfer.setData("text/plain", path);
+      }}
       className="group relative rounded-xl border border-gray-200 transition hover:ring-2 hover:ring-blue-500 dark:border-gray-800"
       onDragOver={(event) => {
+        // Only intercept real external file drags, not internal GitStore drags
         if (!onDropFiles) return;
+        const hasFiles = event.dataTransfer.types.includes("Files");
+        const isInternal = event.dataTransfer.types.includes("application/x-gitstore-internal");
+        if (!hasFiles || isInternal) return;
         event.preventDefault();
       }}
       onDrop={(event) => {
         if (!onDropFiles) return;
         event.preventDefault();
-        onDropFiles(Array.from(event.dataTransfer?.files ?? []));
+        // getDroppedFilesReact rejects internal drags and returns [] for them
+        const files = getDroppedFilesReact(event);
+        if (files.length > 0) onDropFiles(files);
       }}
     >
       <div className="absolute right-2 top-2 z-10 opacity-0 transition-opacity group-hover:opacity-100">
@@ -211,7 +228,7 @@ export function FolderCard({
         <div className="relative mb-3 flex h-24 items-center justify-center rounded-lg bg-amber-50 dark:bg-amber-950/30">
           {coverSrc ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={coverSrc} alt={name} className="h-full w-full rounded-lg object-cover" />
+            <img src={coverSrc} alt={name} className="h-full w-full rounded-lg object-cover" draggable={false} />
           ) : (
             <FolderIcon className="h-10 w-10 text-amber-500" />
           )}

@@ -85,7 +85,7 @@ export function Topbar() {
           >
             {session?.user?.image ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={session.user.image} alt="Avatar" className="h-full w-full object-cover" />
+              <img src={session.user.image} alt="Avatar" className="h-full w-full object-cover" draggable={false} />
             ) : (
               <span className="text-xs font-semibold">{session?.user?.name?.slice(0, 1) ?? "U"}</span>
             )}
