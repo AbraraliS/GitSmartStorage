@@ -390,6 +390,7 @@ export default function DashboardPage() {
       ) : mode === "list" ? (
         <FileList
           files={computed.files}
+          folders={computed.folders}
           currentFolder={path || undefined}
           isFolderView={view === "folder" && Boolean(path)}
         />

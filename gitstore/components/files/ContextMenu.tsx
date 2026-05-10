@@ -1,16 +1,7 @@
 "use client";
 
-import { useCallback, useMemo } from "react";
-import {
-  autoUpdate,
-  flip,
-  offset,
-  shift,
-  useFloating,
-  useInteractions,
-  useRole,
-  useDismiss,
-} from "@floating-ui/react";
+import { useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import {
   DownloadIcon,
   EyeIcon,
@@ -29,6 +20,18 @@ export interface ContextMenuActionHandlers {
   onTrash: () => void;
 }
 
+const MENU_WIDTH = 192;
+
+/**
+ * ContextMenu — for FileGrid right-click / ⋮ button.
+ *
+ * Rendered via createPortal so it escapes all overflow:hidden parents.
+ * Positions using fixed coords from clientX/clientY (right-click) or
+ * button bounding rect (⋮ click), with viewport collision detection.
+ *
+ * This replaces the broken Floating UI + raw coord hybrid which caused
+ * the menu to appear far from the target item.
+ */
 export function ContextMenu({
   x,
   y,
@@ -44,69 +47,83 @@ export function ContextMenu({
   starred: boolean;
   handlers: ContextMenuActionHandlers;
 }) {
-  const { refs, floatingStyles, context } = useFloating({
-    open,
-    onOpenChange,
-    whileElementsMounted: autoUpdate,
-    placement: "right-start",
-    middleware: [offset(4), flip(), shift()],
-  });
+  const menuRef = useRef<HTMLDivElement>(null);
 
-  const { getFloatingProps } = useInteractions([
-    useRole(context, { role: "menu" }),
-    useDismiss(context),
-  ]);
-
-  const setFloatingRef = useCallback(
-    (node: HTMLDivElement | null) => {
-      refs.setFloating(node);
-    },
-    [refs]
-  );
-
-  const menuStyle = useMemo(
-    () => ({ ...floatingStyles, left: x, top: y }),
-    [floatingStyles, x, y]
-  );
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onOpenChange(false); };
+    const onClick = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        onOpenChange(false);
+      }
+    };
+    document.addEventListener("keydown", onKey, true);
+    document.addEventListener("mousedown", onClick, true);
+    return () => {
+      document.removeEventListener("keydown", onKey, true);
+      document.removeEventListener("mousedown", onClick, true);
+    };
+  }, [open, onOpenChange]);
 
   if (!open) return null;
 
-  const itemClass =
-    "flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800";
+  // Viewport-aware positioning
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const mh = menuRef.current?.offsetHeight ?? 220;
 
-  return (
+  let left = x;
+  let top = y;
+
+  if (left + MENU_WIDTH > vw - 8) left = vw - MENU_WIDTH - 8;
+  if (left < 8) left = 8;
+  if (top + mh > vh - 8) top = y - mh;
+  if (top < 8) top = 8;
+
+  const itemClass =
+    "flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800 transition-colors";
+
+  const menuEl = (
     <div
-      ref={setFloatingRef}
-      style={menuStyle}
-      className="z-[120] min-w-48 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-900"
-      {...getFloatingProps()}
+      ref={menuRef}
+      role="menu"
+      style={{ position: "fixed", left, top, zIndex: 9999, minWidth: MENU_WIDTH }}
+      className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-2xl dark:border-gray-700 dark:bg-gray-900"
     >
-      <button type="button" className={itemClass} onClick={handlers.onOpenPreview}>
-        <EyeIcon className="h-4 w-4" />
+      <button type="button" role="menuitem" className={itemClass} onClick={handlers.onOpenPreview}>
+        <EyeIcon className="h-4 w-4 shrink-0" />
         Open preview
       </button>
-      <button type="button" className={itemClass} onClick={handlers.onDownload}>
-        <DownloadIcon className="h-4 w-4" />
+      <button type="button" role="menuitem" className={itemClass} onClick={handlers.onDownload}>
+        <DownloadIcon className="h-4 w-4 shrink-0" />
         Download
       </button>
       <div className="my-1 border-t border-gray-200 dark:border-gray-700" />
-      <button type="button" className={itemClass} onClick={handlers.onToggleStar}>
-        <StarIcon className="h-4 w-4" />
+      <button type="button" role="menuitem" className={itemClass} onClick={handlers.onToggleStar}>
+        <StarIcon className={`h-4 w-4 shrink-0 ${starred ? "fill-amber-400 text-amber-400" : ""}`} />
         {starred ? "Unstar" : "Star"}
       </button>
-      <button type="button" className={itemClass} onClick={handlers.onRename}>
-        <PencilIcon className="h-4 w-4" />
+      <button type="button" role="menuitem" className={itemClass} onClick={handlers.onRename}>
+        <PencilIcon className="h-4 w-4 shrink-0" />
         Rename
       </button>
-      <button type="button" className={itemClass} onClick={handlers.onMoveTo}>
-        <FolderInputIcon className="h-4 w-4" />
-        Move to...
+      <button type="button" role="menuitem" className={itemClass} onClick={handlers.onMoveTo}>
+        <FolderInputIcon className="h-4 w-4 shrink-0" />
+        Move to…
       </button>
       <div className="my-1 border-t border-gray-200 dark:border-gray-700" />
-      <button type="button" className={itemClass} onClick={handlers.onTrash}>
-        <Trash2Icon className="h-4 w-4" />
+      <button
+        type="button"
+        role="menuitem"
+        className={`${itemClass} text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/20`}
+        onClick={handlers.onTrash}
+      >
+        <Trash2Icon className="h-4 w-4 shrink-0" />
         Move to trash
       </button>
     </div>
   );
+
+  if (typeof document === "undefined") return null;
+  return createPortal(menuEl, document.body);
 }
