@@ -38,14 +38,19 @@ const nextConfig: NextConfig = {
               "default-src 'self'",
               "script-src 'self' 'unsafe-inline'",
               "style-src 'self' 'unsafe-inline'",
+              // blob: required for <img src={objectUrl}> (image previews)
               "img-src 'self' data: blob: https://avatars.githubusercontent.com https://raw.githubusercontent.com",
+              // blob: required for <video src={objectUrl}> and <audio src={objectUrl}> (media previews)
               "media-src 'self' blob:",
-              "frame-src 'self' blob:",
-              "object-src 'self' blob:",
+              // blob: required for pdf.js web worker (runs in a blob: worker URL)
+              "worker-src 'self' blob:",
+              // No frame-src blob: — PDFs rendered via canvas, not iframe
+              // No object-src blob: — PDFs rendered via canvas, not <object>
+              "frame-src 'none'",
+              "object-src 'none'",
               "connect-src 'self' https://api.github.com https://raw.githubusercontent.com",
               "font-src 'self'",
               "frame-ancestors 'none'",
-              "worker-src 'self' blob:",
             ].join("; "),
           },
         ],
