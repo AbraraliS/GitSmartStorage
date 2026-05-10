@@ -3,11 +3,12 @@ import { z } from "zod";
 import { auth } from "@/auth";
 import { createOctokit, readRemoteIndex, assertOwner } from "@/lib/github";
 import { checkRateLimit } from "@/lib/ratelimit";
-import { withErrorHandler } from "@/lib/api-utils";
+import { withErrorHandler } from "@/lib/error-handler";
 import { logger } from "@/lib/logger";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
+export const runtime = "nodejs";
 
 async function decryptBuffer(
   encryptedData: Uint8Array,
