@@ -20,6 +20,8 @@ import {
   MoreVerticalIcon,
   MusicIcon,
   PaletteIcon,
+  PanelLeftCloseIcon,
+  PanelLeftOpenIcon,
   PencilIcon,
   PlusIcon,
   SearchIcon,
@@ -68,25 +70,30 @@ function NavItem({
   active,
   icon: Icon,
   onClick,
+  isCollapsed,
 }: {
   href: string;
   label: string;
   active: boolean;
   icon: ComponentType<{ className?: string }>;
   onClick?: () => void;
+  isCollapsed?: boolean;
 }) {
   return (
     <Link
       href={href}
       onClick={onClick}
-      className={`flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm transition ${
+      title={isCollapsed ? label : undefined}
+      className={`flex items-center rounded-xl px-3 py-2.5 text-sm transition ${
+        isCollapsed ? "justify-center" : "gap-2"
+      } ${
         active
           ? "bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
           : "text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
       }`}
     >
       <Icon className="h-4 w-4 shrink-0" />
-      {label}
+      {!isCollapsed && label}
     </Link>
   );
 }
@@ -96,12 +103,16 @@ function SectionHeader({
   collapsed,
   onToggle,
   extra,
+  isCollapsed,
 }: {
   title: string;
   collapsed: boolean;
   onToggle: () => void;
   extra?: React.ReactNode;
+  isCollapsed?: boolean;
 }) {
+  if (isCollapsed) return <div className="my-2 border-t border-gray-100 dark:border-gray-800" />;
+
   return (
     <div className="flex items-center justify-between px-2">
       <button
@@ -120,7 +131,7 @@ function SectionHeader({
 export function Sidebar() {
   const { index, loading, setIndex } = useIndex();
   const { triggerUpload } = useUpload();
-  const { isOpen, open, close } = useSidebar();
+  const { isOpen, open, close, isCollapsed, toggleCollapsed } = useSidebar();
   const params = useSearchParams();
   const router = useRouter();
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
@@ -205,7 +216,7 @@ export function Sidebar() {
     return () => window.removeEventListener("click", closeMenu);
   }, []);
 
-  const toggleCollapsed = (key: string) => {
+  const toggleSection = (key: string) => {
     setCollapsed((current) => ({ ...current, [key]: !current[key] }));
   };
 
@@ -259,7 +270,7 @@ export function Sidebar() {
             <button
               type="button"
               className="rounded p-1 hover:bg-gray-200 dark:hover:bg-gray-700"
-              onClick={() => hasChildren && toggleCollapsed(itemKey)}
+              onClick={() => hasChildren && toggleSection(itemKey)}
               aria-label={isCollapsed ? "Expand folder" : "Collapse folder"}
             >
               {hasChildren ? (
@@ -300,149 +311,211 @@ export function Sidebar() {
   };
 
   // ── Shared sidebar inner content ─────────────────────────────────────────
-  const innerContent = (
-    <>
-      <div className="mb-4 flex items-center justify-between px-2">
-        <div>
-          <p className="text-xl font-bold tracking-tight text-gray-900 dark:text-gray-100">GitStore</p>
-          <p className="text-xs text-gray-500 mt-0.5">{totalFiles} files</p>
-        </div>
-        {/* Close button — only rendered/visible in drawer context (lg+ hides it) */}
-        <button
-          type="button"
-          onClick={close}
-          className="touch-target rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 lg:hidden"
-          aria-label="Close navigation"
-        >
-          <XIcon className="h-4 w-4" />
-        </button>
-      </div>
+  const renderInnerContent = (isDesktop: boolean) => {
+    const showLabels = !isDesktop || !isCollapsed;
 
-      <div className="mb-4">
-        <NewButton />
-      </div>
-
-      <nav className="space-y-1">
-        <NavItem
-          href="/dashboard"
-          label="My Files"
-          icon={HardDriveIcon}
-          active={!view || (view === "folder" && !activePath)}
-          onClick={close}
-        />
-        <NavItem
-          href="/dashboard?view=trash"
-          label="Trash"
-          icon={Trash2Icon}
-          active={view === "trash"}
-          onClick={close}
-        />
-      </nav>
-
-      <div className="my-4 border-t border-gray-200 dark:border-gray-800" />
-
-      <div className="flex-1 space-y-4 overflow-y-auto pr-1 overscroll-contain">
-        {/* ── Smart Collections ─────────────────────────────────────────── */}
-        <section className="space-y-2">
-          <SectionHeader
-            title="Smart"
-            collapsed={sectionCollapsed.smart}
-            onToggle={() => toggleCollapsed("smart")}
-          />
-          {!sectionCollapsed.smart && (
-            <div className="space-y-0.5">
-              {loading
-                ? [80, 68, 74].map((w, i) => (
-                    <div key={i} className="h-8 rounded-lg bg-gray-100 dark:bg-gray-800 animate-pulse" style={{ width: w }} />
-                  ))
-                : smartCollections.map((collection) => {
-                    const Icon = SMART_ICONS[collection.icon] ?? FolderIcon;
-                    const isActive = view === "smart" && smartType === collection.id;
-                    return (
-                      <button
-                        key={collection.id}
-                        type="button"
-                        onClick={() => {
-                          router.push(`/dashboard?view=smart&type=${collection.id}`);
-                          close();
-                        }}
-                        className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm transition ${
-                          isActive
-                            ? "bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
-                            : "text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
-                        }`}
-                      >
-                        <span className="flex items-center gap-2 truncate">
-                          <Icon className="h-4 w-4 shrink-0" />
-                          <span className="truncate">{collection.label}</span>
-                        </span>
-                        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] text-gray-500 dark:bg-gray-800 dark:text-gray-400">
-                          {collection.count}
-                        </span>
-                      </button>
-                    );
-                  })}
-              {!loading && smartCollections.length === 0 && (
-                <p className="px-3 py-2 text-xs text-gray-400">Upload files to see categories</p>
-              )}
+    return (
+      <>
+        <div className={`mb-4 flex items-center px-2 ${showLabels ? "justify-between" : "justify-center"}`}>
+          {showLabels ? (
+            <div className="flex items-center gap-3 min-w-0">
+              {/* Logo Icon */}
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white shadow-lg shadow-blue-500/20">
+                <HardDriveIcon className="h-5 w-5" />
+              </div>
+              
+              {/* Branding Text */}
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-lg font-bold tracking-tight text-gray-900 dark:text-gray-100">GitStore</p>
+                <p className="truncate text-[10px] text-gray-500 uppercase tracking-wider font-medium">{totalFiles} files</p>
+              </div>
             </div>
-          )}
-        </section>
-
-        {/* ── My Folders ────────────────────────────────────────────────── */}
-        <section className="space-y-2">
-          <SectionHeader
-            title="My Folders"
-            collapsed={sectionCollapsed.folders}
-            onToggle={() => toggleCollapsed("folders")}
-            extra={
+          ) : (
+            /* Collapsed State: Show ONLY the toggle icon, centered */
+            isDesktop && (
               <button
                 type="button"
-                className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
-                onClick={() => window.dispatchEvent(new Event("gitstore:new-folder"))}
-                aria-label="Create folder"
+                onClick={toggleCollapsed}
+                className="flex h-10 w-10 items-center justify-center rounded-xl text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800"
+                aria-label="Expand sidebar"
               >
-                <PlusIcon className="h-4 w-4" />
+                <PanelLeftOpenIcon className="h-5 w-5" />
               </button>
-            }
+            )
+          )}
+          
+          {/* Collapse toggle — visible only when expanded on desktop */}
+          {isDesktop && showLabels && (
+            <button
+              type="button"
+              onClick={toggleCollapsed}
+              className="touch-target hidden rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 lg:flex"
+              aria-label="Collapse sidebar"
+            >
+              <PanelLeftCloseIcon className="h-4 w-4" />
+            </button>
+          )}
+
+          {/* Close button — only in mobile drawer context */}
+          {!isDesktop && (
+            <button
+              type="button"
+              onClick={close}
+              className="touch-target rounded-lg p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800"
+              aria-label="Close navigation"
+            >
+              <XIcon className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+
+        <div className="mb-4">
+          {showLabels ? (
+            <NewButton />
+          ) : (
+            <button
+              type="button"
+              onClick={() => window.dispatchEvent(new Event("gitstore:trigger-upload"))}
+              className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white shadow-lg shadow-blue-500/20 hover:bg-blue-700 mx-auto"
+              title="Upload file"
+            >
+              <PlusIcon className="h-5 w-5" />
+            </button>
+          )}
+        </div>
+
+        <nav className="space-y-1">
+          <NavItem
+            href="/dashboard"
+            label="My Files"
+            icon={HardDriveIcon}
+            active={!view || (view === "folder" && !activePath)}
+            onClick={close}
+            isCollapsed={!showLabels}
           />
-          {!sectionCollapsed.folders && (
-            <div className="space-y-1">
-              {rootFolders.length === 0 && !loading && (
-                <p className="px-3 py-2 text-xs text-gray-400">No folders yet</p>
+          <NavItem
+            href="/dashboard?view=trash"
+            label="Trash"
+            icon={Trash2Icon}
+            active={view === "trash"}
+            onClick={close}
+            isCollapsed={!showLabels}
+          />
+        </nav>
+
+        <div className="my-4 border-t border-gray-200 dark:border-gray-800" />
+
+        <div className="flex-1 space-y-4 overflow-y-auto pr-1 overscroll-contain no-scrollbar">
+          <section className="space-y-2">
+            <SectionHeader
+              title="Smart"
+              collapsed={sectionCollapsed.smart}
+              onToggle={() => toggleSection("smart")}
+              isCollapsed={!showLabels}
+            />
+            {!sectionCollapsed.smart && (
+              <div className="space-y-0.5">
+                {loading
+                  ? [80, 68, 74].map((w, i) => (
+                      <div key={i} className={`h-8 rounded-lg bg-gray-100 dark:bg-gray-800 animate-pulse ${!showLabels ? "w-10 mx-auto" : ""}`} style={{ width: showLabels ? w : undefined }} />
+                    ))
+                  : smartCollections.map((collection) => {
+                      const Icon = SMART_ICONS[collection.icon] ?? FolderIcon;
+                      const isActive = view === "smart" && smartType === collection.id;
+                      return (
+                        <button
+                          key={collection.id}
+                          type="button"
+                          title={!showLabels ? collection.label : undefined}
+                          onClick={() => {
+                            router.push(`/dashboard?view=smart&type=${collection.id}`);
+                            close();
+                          }}
+                          className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm transition ${
+                            isActive
+                              ? "bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
+                              : "text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
+                          } ${!showLabels ? "justify-center" : ""}`}
+                        >
+                          <span className={`flex items-center truncate ${!showLabels ? "justify-center" : "gap-2"}`}>
+                            <Icon className="h-4 w-4 shrink-0" />
+                            {showLabels && <span className="truncate">{collection.label}</span>}
+                          </span>
+                          {showLabels && (
+                            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] text-gray-500 dark:bg-gray-800 dark:text-gray-400">
+                              {collection.count}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+              </div>
+            )}
+          </section>
+
+          {showLabels && (
+            <section className="space-y-2">
+              <SectionHeader
+                title="My Folders"
+                collapsed={sectionCollapsed.folders}
+                onToggle={() => toggleSection("folders")}
+                extra={
+                  <button
+                    type="button"
+                    className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
+                    onClick={() => window.dispatchEvent(new Event("gitstore:new-folder"))}
+                    aria-label="Create folder"
+                  >
+                    <PlusIcon className="h-4 w-4" />
+                  </button>
+                }
+              />
+              {!sectionCollapsed.folders && (
+                <div className="space-y-1">
+                  {rootFolders.length === 0 && !loading && (
+                    <p className="px-3 py-2 text-xs text-gray-400">No folders yet</p>
+                  )}
+                  {renderFolderTree(rootFolders, 0)}
+                </div>
               )}
-              {renderFolderTree(rootFolders, 0)}
+            </section>
+          )}
+        </div>
+
+        <div className="mt-4 space-y-3 px-2">
+          <Link
+            href="/settings"
+            title={!showLabels ? "Settings" : undefined}
+            className={`flex items-center rounded-xl px-3 py-2 text-sm text-gray-600 transition hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800 ${!showLabels ? "justify-center" : "gap-2"}`}
+          >
+            <SettingsIcon className="h-4 w-4" />
+            {showLabels && "Settings"}
+          </Link>
+          {showLabels && (
+            <div className="space-y-1">
+              <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
+                <span>{totalUsedGb.toFixed(2)} GB used</span>
+                <span>250 GB</span>
+              </div>
+              <div className="h-1.5 rounded-full bg-gray-200 dark:bg-gray-800">
+                <div className="h-full rounded-full bg-blue-500 transition-all" style={{ width: `${usedPct}%` }} />
+              </div>
             </div>
           )}
-        </section>
-      </div>
-
-      <div className="mt-4 space-y-3 px-2">
-        <Link
-          href="/settings"
-          className="flex items-center gap-2 rounded-xl px-3 py-2 text-sm text-gray-600 transition hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
-        >
-          <SettingsIcon className="h-4 w-4" />
-          Settings
-        </Link>
-        <div className="space-y-1">
-          <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
-            <span>{totalUsedGb.toFixed(2)} GB used</span>
-            <span>250 GB</span>
-          </div>
-          <div className="h-1.5 rounded-full bg-gray-200 dark:bg-gray-800">
-            <div className="h-full rounded-full bg-blue-500 transition-all" style={{ width: `${usedPct}%` }} />
-          </div>
         </div>
-      </div>
-    </>
-  );
+      </>
+    );
+  };
 
   return (
     <>
       {/* ── Desktop sidebar — always visible on lg+ ─────────────────────── */}
-      <aside className="hidden h-dvh w-64 shrink-0 flex-col border-r border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900 lg:flex">
-        {innerContent}
+      <aside
+        className={`hidden h-dvh shrink-0 flex-col border-r border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900 lg:flex transition-all duration-300 ease-in-out ${
+          isCollapsed ? "w-20" : "w-64"
+        }`}
+      >
+        {renderInnerContent(true)}
       </aside>
 
       {/* ── Mobile/tablet drawer ─────────────────────────────────────────── */}
@@ -462,7 +535,7 @@ export function Sidebar() {
           isOpen ? "translate-x-0 animate-drawer-in" : "-translate-x-full pointer-events-none"
         }`}
       >
-        {innerContent}
+        {renderInnerContent(false)}
       </aside>
 
       {/* ── Folder context menu ────────────────────────────────────────────── */}

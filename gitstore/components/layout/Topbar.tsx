@@ -35,20 +35,20 @@ export function Topbar() {
   return (
     <header className="flex h-14 shrink-0 items-center gap-2 border-b border-gray-200 bg-white px-3 dark:border-gray-800 dark:bg-gray-900 md:gap-3 md:px-4">
 
-      {/* ── Left ────────────────────────────────────────────────────────── */}
-      <div className={`flex shrink-0 items-center gap-2 ${searchExpanded ? "hidden sm:flex" : "flex"}`}>
-        {/* Hamburger — only on mobile/tablet (hidden on desktop) */}
+      {/* ── Left Cluster: Hamburger & Wordmark (Mobile/Tablet only) ─────── */}
+      <div className={`shrink-0 items-center gap-2 lg:hidden ${searchExpanded ? "hidden sm:flex" : "flex"}`}>
+        {/* Hamburger */}
         <button
           type="button"
           onClick={toggleSidebar}
-          className="touch-target shrink-0 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 lg:hidden"
+          className="touch-target flex h-10 w-10 shrink-0 items-center justify-center rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800"
           aria-label="Open navigation"
         >
           <MenuIcon className="h-5 w-5" />
         </button>
 
-        {/* Wordmark — only on desktop (replaces the hamburger role) */}
-        <span className="hidden select-none text-base font-bold tracking-tight text-gray-900 dark:text-gray-100 lg:block">
+        {/* Wordmark */}
+        <span className="select-none text-base font-bold tracking-tight text-gray-900 dark:text-gray-100">
           GitStore
         </span>
       </div>
@@ -71,12 +71,12 @@ export function Topbar() {
       {/* ── Right ────────────────────────────────────────────────────────── */}
       <div className="ml-auto flex shrink-0 items-center gap-0.5">
 
-        {/* Search icon — mobile only, tap expands search bar */}
+        {/* Search icon — mobile/tablet only, tap expands search bar. Hidden on desktop (lg+). */}
         {!searchExpanded && (
           <button
             type="button"
             onClick={() => setSearchExpanded(true)}
-            className="touch-target rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 sm:hidden"
+            className="touch-target flex h-10 w-10 items-center justify-center rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 lg:hidden"
             aria-label="Search"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
