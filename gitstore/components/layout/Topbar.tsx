@@ -1,42 +1,43 @@
 "use client";
 
+/**
+ * components/layout/Topbar.tsx
+ *
+ * Simplified top navigation bar.
+ *
+ * Contains ONLY:
+ *   Left:   Hamburger (mobile/tablet) | GitStore wordmark (desktop)
+ *   Center: SearchBar (always)
+ *   Right:  Avatar menu
+ *
+ * View toggles, new-folder button, and breadcrumbs have been
+ * moved to BreadcrumbRow (below this bar).
+ *
+ * Mobile search:
+ *   - SearchBar is hidden on small screens
+ *   - A search icon appears in the right cluster
+ *   - Tapping it expands SearchBar to full-width takeover
+ */
+
 import { useState } from "react";
-import { Grid3X3Icon, ListIcon, MenuIcon, PlusIcon, XIcon } from "lucide-react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { MenuIcon, XIcon } from "lucide-react";
 import { signOut, useSession } from "next-auth/react";
 import { SearchBar } from "@/components/files/SearchBar";
-import { Breadcrumb } from "@/components/files/Breadcrumb";
 import { clearAllCaches } from "@/lib/cache";
 import { useSidebar } from "@/components/providers/SidebarContext";
 
-/**
- * Topbar — desktop-only sticky header.
- * On mobile/tablet, the sidebar drawer opens via the hamburger.
- * The bell/notification icon has been removed (no notification system yet).
- */
 export function Topbar() {
-  const params = useSearchParams();
-  const pathname = usePathname();
-  const router = useRouter();
   const { data: session } = useSession();
   const { toggle: toggleSidebar } = useSidebar();
   const [avatarOpen, setAvatarOpen] = useState(false);
   const [searchExpanded, setSearchExpanded] = useState(false);
 
-  const mode = params.get("mode") ?? "grid";
-
-  const setMode = (nextMode: "grid" | "list") => {
-    const next = new URLSearchParams(params.toString());
-    next.set("mode", nextMode);
-    router.replace(`${pathname}?${next.toString()}`);
-  };
-
   return (
     <header className="flex h-14 shrink-0 items-center gap-2 border-b border-gray-200 bg-white px-3 dark:border-gray-800 dark:bg-gray-900 md:gap-3 md:px-4">
 
-      {/* ── Left: Hamburger (mobile/tablet) + Breadcrumb ────────────────── */}
-      <div className={`flex min-w-0 items-center gap-2 transition-all ${searchExpanded ? "hidden sm:flex" : "flex"} lg:w-64`}>
-        {/* Hamburger — hidden on desktop */}
+      {/* ── Left ────────────────────────────────────────────────────────── */}
+      <div className={`flex shrink-0 items-center gap-2 ${searchExpanded ? "hidden sm:flex" : "flex"}`}>
+        {/* Hamburger — only on mobile/tablet (hidden on desktop) */}
         <button
           type="button"
           onClick={toggleSidebar}
@@ -45,9 +46,11 @@ export function Topbar() {
         >
           <MenuIcon className="h-5 w-5" />
         </button>
-        <div className="min-w-0 flex-1">
-          <Breadcrumb />
-        </div>
+
+        {/* Wordmark — only on desktop (replaces the hamburger role) */}
+        <span className="hidden select-none text-base font-bold tracking-tight text-gray-900 dark:text-gray-100 lg:block">
+          GitStore
+        </span>
       </div>
 
       {/* ── Center: Search ───────────────────────────────────────────────── */}
@@ -65,10 +68,10 @@ export function Topbar() {
         <SearchBar />
       </div>
 
-      {/* ── Right: Actions ───────────────────────────────────────────────── */}
+      {/* ── Right ────────────────────────────────────────────────────────── */}
       <div className="ml-auto flex shrink-0 items-center gap-0.5">
 
-        {/* Search icon — mobile only, expands search bar */}
+        {/* Search icon — mobile only, tap expands search bar */}
         {!searchExpanded && (
           <button
             type="button"
@@ -82,37 +85,7 @@ export function Topbar() {
           </button>
         )}
 
-        {/* New folder — md+ only */}
-        <button
-          type="button"
-          onClick={() => window.dispatchEvent(new Event("gitstore:new-folder"))}
-          className="touch-target hidden rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 md:flex"
-          aria-label="Create folder"
-        >
-          <PlusIcon className="h-4 w-4" />
-        </button>
-
-        {/* View toggles */}
-        <button
-          type="button"
-          onClick={() => setMode("grid")}
-          className={`touch-target rounded-xl ${mode === "grid" ? "bg-gray-100 dark:bg-gray-800" : "hover:bg-gray-100 dark:hover:bg-gray-800"}`}
-          aria-label="Grid view"
-          aria-pressed={mode === "grid"}
-        >
-          <Grid3X3Icon className="h-4 w-4" />
-        </button>
-        <button
-          type="button"
-          onClick={() => setMode("list")}
-          className={`touch-target rounded-xl ${mode === "list" ? "bg-gray-100 dark:bg-gray-800" : "hover:bg-gray-100 dark:hover:bg-gray-800"}`}
-          aria-label="List view"
-          aria-pressed={mode === "list"}
-        >
-          <ListIcon className="h-4 w-4" />
-        </button>
-
-        {/* Avatar + sign-out */}
+        {/* Avatar + sign-out dropdown */}
         <div className="relative ml-1">
           <button
             type="button"
@@ -126,24 +99,27 @@ export function Topbar() {
               // eslint-disable-next-line @next/next/no-img-element
               <img src={session.user.image} alt="Avatar" className="h-full w-full object-cover" draggable={false} />
             ) : (
-              <span className="text-xs font-semibold">{session?.user?.name?.slice(0, 1) ?? "U"}</span>
+              <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+                {session?.user?.name?.slice(0, 1) ?? "U"}
+              </span>
             )}
           </button>
 
           {avatarOpen && (
             <>
               <div className="fixed inset-0 z-40" onClick={() => setAvatarOpen(false)} aria-hidden />
-              <div className="absolute right-0 z-50 mt-2 w-48 rounded-xl border border-gray-200 bg-white py-1 shadow-xl dark:border-gray-800 dark:bg-gray-900">
-                <div className="border-b border-gray-100 px-3 py-2.5 dark:border-gray-800">
-                  <p className="truncate text-xs font-semibold text-gray-900 dark:text-gray-100">
+              <div className="absolute right-0 z-50 mt-2 w-52 rounded-2xl border border-gray-200 bg-white py-1.5 shadow-xl dark:border-gray-800 dark:bg-gray-900">
+                <div className="border-b border-gray-100 px-4 py-3 dark:border-gray-800">
+                  <p className="truncate text-sm font-semibold text-gray-900 dark:text-gray-100">
                     {session?.user?.name ?? "User"}
                   </p>
-                  <p className="truncate text-[11px] text-gray-500">{session?.user?.email ?? ""}</p>
+                  <p className="truncate text-xs text-gray-500">{session?.user?.email ?? ""}</p>
                 </div>
                 <button
                   type="button"
-                  className="w-full px-3 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
+                  className="w-full px-4 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
                   onClick={async () => {
+                    setAvatarOpen(false);
                     await clearAllCaches();
                     await signOut({ callbackUrl: "/" });
                   }}

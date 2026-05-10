@@ -136,7 +136,7 @@ export function DropZone({
         <button
           type="button"
           onClick={() => triggerUpload({ targetFolder })}
-          className={`relative z-10 flex w-full flex-col items-center rounded-xl border-2 border-dashed border-gray-700 py-12 text-gray-500 transition hover:border-emerald-500/50 hover:text-emerald-500 ${className ?? ""}`}
+          className={`relative z-10 hidden md:flex w-full flex-col items-center rounded-xl border-2 border-dashed border-gray-700 py-12 text-gray-500 transition hover:border-emerald-500/50 hover:text-emerald-500 ${className ?? ""}`}
         >
           <UploadCloudIcon className="h-10 w-10" />
           <p className="mt-3 text-sm font-medium">

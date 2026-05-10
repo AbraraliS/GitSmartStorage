@@ -133,3 +133,13 @@ body {
 .mobile-bottom-inset {
   padding-bottom: calc(3.5rem + env(safe-area-inset-bottom, 0px));
 }
+
+/* ─── Hide scrollbar (preserve scroll functionality) ─────────────────────── */
+/* Used by BreadcrumbRow horizontal scroll on mobile */
+.hide-scrollbar {
+  scrollbar-width: none;          /* Firefox */
+  -ms-overflow-style: none;       /* IE/Edge */
+}
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;                  /* Chrome/Safari/Opera */
+}

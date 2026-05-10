@@ -16,15 +16,17 @@ import {
   HardDriveIcon,
   ImageIcon,
   LockIcon,
+  MenuIcon,
   MoreVerticalIcon,
   MusicIcon,
   PaletteIcon,
   PencilIcon,
   PlusIcon,
+  SearchIcon,
   SettingsIcon,
+  SparklesIcon,
   StarIcon,
   Trash2Icon,
-  UploadCloudIcon,
   VideoIcon,
   XIcon,
 } from "lucide-react";
@@ -118,7 +120,7 @@ function SectionHeader({
 export function Sidebar() {
   const { index, loading, setIndex } = useIndex();
   const { triggerUpload } = useUpload();
-  const { isOpen, close } = useSidebar();
+  const { isOpen, open, close } = useSidebar();
   const params = useSearchParams();
   const router = useRouter();
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
@@ -599,95 +601,6 @@ export function Sidebar() {
           onCancel={() => setDeleteTarget(null)}
         />
       )}
-
-      {/* ── Mobile bottom nav ─────────────────────────────────────────────── */}
-      {/*
-       * Design principles:
-       *  - 4 tabs max (Files, Recent, Upload, Starred)
-       *  - Active state: filled pill behind icon + colored icon + colored label
-       *  - pb-safe: adds env(safe-area-inset-bottom) for iPhone gesture bar
-       *  - h-16 minimum height = 64px, ensuring icons + label clear 44px target
-       *  - Settings moved to sidebar drawer (reduces clutter)
-       *  - Upload is a visually distinct center action (not a standard nav tab)
-       */}
-      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-gray-200 bg-white pb-safe dark:border-gray-800 dark:bg-gray-900 lg:hidden">
-        <div className="grid h-16 grid-cols-4 items-center">
-          {[
-            {
-              href: "/dashboard",
-              icon: HardDriveIcon,
-              label: "Files",
-              active: !view || (view === "folder"),
-              onClick: undefined as undefined | (() => void),
-            },
-            {
-              href: "/dashboard?view=smart&type=recent",
-              icon: ClockIcon,
-              label: "Recent",
-              active: view === "smart" && smartType === "recent",
-              onClick: undefined,
-            },
-            {
-              href: "#",
-              icon: null, // special: upload FAB
-              label: "Upload",
-              active: false,
-              onClick: () => window.dispatchEvent(new Event("gitstore:trigger-upload")),
-            },
-            {
-              href: "/dashboard?view=smart&type=favorites",
-              icon: StarIcon,
-              label: "Starred",
-              active: view === "smart" && smartType === "favorites",
-              onClick: undefined,
-            },
-          ].map(({ href, icon: Icon, label, active, onClick }) => {
-            // Upload button — visually distinct
-            if (!Icon) {
-              return (
-                <button
-                  key="upload"
-                  type="button"
-                  onClick={onClick}
-                  className="touch-target flex flex-col items-center justify-center gap-0.5"
-                  aria-label="Upload files"
-                >
-                  <span className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-600 shadow-md shadow-blue-500/30 dark:bg-blue-500">
-                    <UploadCloudIcon className="h-4.5 w-4.5 text-white" />
-                  </span>
-                  <span className="text-[10px] font-medium text-blue-600 dark:text-blue-400">{label}</span>
-                </button>
-              );
-            }
-            return (
-              <Link
-                key={href}
-                href={href}
-                className="touch-target flex flex-col items-center justify-center gap-0.5"
-              >
-                <span className={`flex h-8 w-14 items-center justify-center rounded-full transition-colors ${
-                  active
-                    ? "bg-blue-100 dark:bg-blue-950/60"
-                    : "bg-transparent"
-                }`}>
-                  <Icon className={`h-5 w-5 transition-colors ${
-                    active
-                      ? "text-blue-600 dark:text-blue-400"
-                      : "text-gray-500 dark:text-gray-400"
-                  }`} />
-                </span>
-                <span className={`text-[10px] font-medium transition-colors ${
-                  active
-                    ? "text-blue-600 dark:text-blue-400"
-                    : "text-gray-500 dark:text-gray-400"
-                }`}>
-                  {label}
-                </span>
-              </Link>
-            );
-          })}
-        </div>
-      </nav>
     </>
   );
 }

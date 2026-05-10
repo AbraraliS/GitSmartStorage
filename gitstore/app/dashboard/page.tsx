@@ -237,7 +237,7 @@ export default function DashboardPage() {
           <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
             {currentFolderName}
           </h2>
-          <div className="flex gap-2">
+          <div className="hidden md:flex gap-2">
             <button
               type="button"
               onClick={() =>
@@ -368,7 +368,7 @@ export default function DashboardPage() {
                     })
                   )
                 }
-                className="mt-2 flex items-center gap-2 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-500"
+                className="mt-2 hidden md:flex items-center gap-2 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-500"
               >
                 <UploadCloudIcon className="h-4 w-4" />
                 Upload to this folder
