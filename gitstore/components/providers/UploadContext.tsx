@@ -21,11 +21,22 @@ export interface UploadItem {
   id: string;
   hash?: string;
   fileName: string;
+  /** Total file size in bytes — used for byte-based progress display */
+  fileSize?: number;
+  /** Byte-based percentage 0–100 */
+  percentage: number;
+  /** Upload phase label */
+  phase?: import("@/types").UploadPhase;
+  /** @deprecated kept for legacy tray compatibility */
   totalChunks: number;
+  /** @deprecated kept for legacy tray compatibility */
   uploadedChunks: number;
-  status: UploadProgress["status"] | "queued" | "waiting_folder";
+  status: import("@/types").UploadProgress["status"] | "queued" | "waiting_folder";
   error?: string;
   targetFolder?: string;
+  speedMbps?: number;
+  etaSeconds?: number;
+  currentChunk?: number;
 }
 
 interface UploadContextValue {
@@ -81,6 +92,10 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     setUploads((prev) => prev.map((u) => (u.id === id ? { ...u, ...patch } : u)));
   }, []);
 
+  // AbortController map — keyed by upload item id, lives in a ref so it
+  // survives re-renders and doesn't trigger state updates.
+  const abortControllers = useRef<Map<string, AbortController>>(new Map());
+
   const maybeAutoDismiss = useCallback(() => {
     setUploads((current) => {
       const allDone =
@@ -134,6 +149,10 @@ export function UploadProvider({ children }: { children: ReactNode }) {
 
       updateItem(id, { status: "hashing", targetFolder });
 
+      // Create a per-upload AbortController so this upload can be cancelled
+      const controller = new AbortController();
+      abortControllers.current.set(id, controller);
+
       try {
         const result = await runUploadPipeline({
           file,
@@ -142,11 +161,17 @@ export function UploadProvider({ children }: { children: ReactNode }) {
           folder: targetFolder,
           tags,
           sessionCsrfToken: csrfToken,
+          signal: controller.signal,
           onProgress: (p) =>
             updateItem(id, {
               status: p.status,
+              phase: p.phase,
+              percentage: p.percentage,
               totalChunks: p.totalChunks,
-              uploadedChunks: p.uploadedChunks,
+              uploadedChunks: p.completedChunks,
+              speedMbps: p.speedMbps,
+              etaSeconds: p.etaSeconds,
+              currentChunk: p.currentChunk,
             }),
         });
 
@@ -161,9 +186,11 @@ export function UploadProvider({ children }: { children: ReactNode }) {
         }
 
         // Build the full record — folders and thumbnail in a single write
-        const record: FileRecord = {
+        const record: import("@/types").FileRecord = {
           hash: result.hash,
           contentHash: result.contentHash,
+          checksum: result.checksum,
+          hashAlgorithm: "sha-256",
           name: result.resolvedName,
           node: result.nodeName,
           path: result.path,
@@ -176,6 +203,11 @@ export function UploadProvider({ children }: { children: ReactNode }) {
           folders: targetFolder && targetFolder !== "/" ? [targetFolder] : [],
           thumbnail: result.thumbnail ?? undefined,
           fixedEncoding: true,
+          uploadMode: result.uploadMode,
+          chunkSize: result.chunkSize,
+          uploadVersion: result.uploadVersion,
+          // Encryption fields — not yet implemented, reserved for future AES-GCM phase
+          encrypted: false,
         };
 
         // ── Optimistic UI update ──────────────────────────────────────────
@@ -206,15 +238,23 @@ export function UploadProvider({ children }: { children: ReactNode }) {
         updateItem(id, {
           status: "done",
           hash: result.hash,
+          percentage: 100,
           uploadedChunks: result.chunks.length || 1,
         });
         maybeAutoDismiss();
       } catch (err) {
+        // Don't show error for user-cancelled uploads
+        if (err instanceof DOMException && err.name === "AbortError") {
+          updateItem(id, { status: "error", error: "Cancelled" });
+          return;
+        }
         console.error("[upload] Failed:", err);
         updateItem(id, {
           status: "error",
           error: err instanceof Error ? err.message : "Upload failed",
         });
+      } finally {
+        abortControllers.current.delete(id);
       }
     },
     [session, index, updateItem, maybeAutoDismiss, refresh, optimisticAddFile]
@@ -274,8 +314,10 @@ export function UploadProvider({ children }: { children: ReactNode }) {
           {
             id,
             fileName: file.name,
+            fileSize: file.size,
             totalChunks: 1,
             uploadedChunks: 0,
+            percentage: 0,
             status: "queued" as const,
             targetFolder: folderPath,
           },
@@ -338,8 +380,10 @@ export function UploadProvider({ children }: { children: ReactNode }) {
       ...files.map((f, i) => ({
         id: ids[i],
         fileName: f.name,
+        fileSize: f.size,
         totalChunks: 1,
         uploadedChunks: 0,
+        percentage: 0,
         status: "waiting_folder" as const,
       })),
     ]);

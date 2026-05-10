@@ -31,9 +31,9 @@ export function UploadQueue({
       </div>
       <div className="space-y-3">
         {items.map((item) => {
-          const pct = item.progress.totalChunks > 0
-            ? Math.round((item.progress.uploadedChunks / item.progress.totalChunks) * 100)
-            : 0;
+          const pct = item.progress.percentage ?? (
+            item.progress.status === "done" ? 100 : 0
+          );
           return (
             <div key={item.id}>
               <div className="mb-1 flex items-center justify-between text-xs">

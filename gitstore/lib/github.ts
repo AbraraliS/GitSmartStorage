@@ -432,3 +432,110 @@ export async function replicateToBackup(
 }
 
 export { CHUNK_SIZE_BYTES };
+
+// ─── Git Data API — batch commit architecture ─────────────────────────────────
+// Use these for chunked uploads (>80MB) to avoid 1-commit-per-chunk overhead.
+// Flow: createGitBlob() × N (parallel) → buildGitTree() → createGitCommit() → updateBranchRef()
+
+/**
+ * Get the current HEAD commit SHA and its root tree SHA.
+ * Required as the parent for new commits and base_tree for new trees.
+ */
+export async function getRepoHead(
+  octokit: Octokit,
+  owner: string,
+  repo: string
+): Promise<{ commitSha: string; treeSha: string }> {
+  const { data: ref } = await octokit.git.getRef({ owner, repo, ref: "heads/main" });
+  const commitSha = ref.object.sha;
+  const { data: commit } = await octokit.git.getCommit({ owner, repo, commit_sha: commitSha });
+  return { commitSha, treeSha: commit.tree.sha };
+}
+
+/**
+ * Upload a single file as a Git blob object (no commit, no tree update).
+ * Can be called in parallel for multiple chunks — returns blob SHA only.
+ * The blob SHA is later assembled into a tree via buildGitTree().
+ */
+export async function createGitBlob(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  base64Content: string
+): Promise<string> {
+  const { data } = await octokit.git.createBlob({
+    owner,
+    repo,
+    content: base64Content,
+    encoding: "base64",
+  });
+  return data.sha;
+}
+
+/**
+ * Create a Git tree that adds/updates multiple blobs at given paths.
+ * base_tree is the existing tree SHA to extend (preserves all other files).
+ */
+export async function buildGitTree(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  baseTreeSha: string,
+  blobs: Array<{ path: string; blobSha: string }>
+): Promise<string> {
+  const { data } = await octokit.git.createTree({
+    owner,
+    repo,
+    base_tree: baseTreeSha,
+    tree: blobs.map((b) => ({
+      path: b.path,
+      mode: "100644" as const,
+      type: "blob" as const,
+      sha: b.blobSha,
+    })),
+  });
+  return data.sha;
+}
+
+/**
+ * Create a Git commit object referencing a tree and a parent commit.
+ * Returns the new commit SHA.
+ */
+export async function createGitCommit(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  message: string,
+  treeSha: string,
+  parentCommitSha: string
+): Promise<string> {
+  const { data } = await octokit.git.createCommit({
+    owner,
+    repo,
+    message,
+    tree: treeSha,
+    parents: [parentCommitSha],
+  });
+  return data.sha;
+}
+
+/**
+ * Fast-forward a branch ref to a new commit SHA.
+ * force: false — fail if the branch has moved since we read HEAD.
+ */
+export async function updateBranchRef(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  commitSha: string,
+  force = false
+): Promise<void> {
+  await octokit.git.updateRef({
+    owner,
+    repo,
+    ref: "heads/main",
+    sha: commitSha,
+    force,
+  });
+}
+

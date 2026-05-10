@@ -64,9 +64,14 @@ export default function UploadPage() {
           progress: {
             fileId: id,
             filename: file.name,
+            phase: "preparing" as const,
+            status: "hashing" as const,
+            totalBytes: file.size,
+            processedBytes: 0,
+            uploadedBytes: 0,
             totalChunks: 1,
-            uploadedChunks: 0,
-            status: "hashing",
+            completedChunks: 0,
+            percentage: 0,
           },
         },
       ]);

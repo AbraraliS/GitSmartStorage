@@ -8,10 +8,13 @@ const nextConfig: NextConfig = {
       { protocol: "https", hostname: "raw.githubusercontent.com" },
     ],
   },
-  // Increase body size limit for chunk uploads (up to 5 MB per chunk)
+  // Chunk uploads use PUT /api/upload/chunk — Route Handler, NOT Server Action.
+  // Server Actions and Route Handlers have SEPARATE body size limits.
+  // An 80MB chunk + 33% base64 expansion + JSON wrapper ≈ 115MB payload.
+  // We set 150MB to provide headroom.
   experimental: {
     serverActions: {
-      bodySizeLimit: "5mb",
+      bodySizeLimit: "150mb",
     },
   },
   // Security headers applied to every route

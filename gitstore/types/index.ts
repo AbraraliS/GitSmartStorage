@@ -79,6 +79,27 @@ export interface FileRecord {
   trashed?: boolean;
   /** ISO timestamp of when the file was moved to trash. */
   trashedAt?: string;
+  /**
+   * Upload pipeline version that stored this file.
+   * 1 = legacy (50MB fixed chunks, double-base64)
+   * 2 = adaptive (single/chunked mode, correct base64)
+   */
+  uploadVersion?: number;
+  /** Upload mode used: "single" | "chunked" | "legacy" */
+  uploadMode?: "single" | "chunked" | "legacy";
+  /** Chunk size in bytes used when uploadMode === "chunked" */
+  chunkSize?: number;
+  /** SHA-256 hex checksum of the full original file content */
+  checksum?: string;
+  /** Algorithm used for checksum, e.g. "sha-256" */
+  hashAlgorithm?: string;
+  /**
+   * Encryption readiness fields — populated when AES-GCM is implemented.
+   * Left as undefined for all current uploads (no encryption yet).
+   */
+  encrypted?: boolean;
+  encryptionVersion?: number;
+  encryptionAlgorithm?: string;
   /** True on all files uploaded after the double-base64 encoding fix (2026-03-16). */
   fixedEncoding?: boolean;
 }
@@ -180,16 +201,64 @@ export interface UploadChunk {
   data: string;
   path: string; // storage path inside repo
   sha?: string; // existing blob SHA (for updates)
-  /** Base64-encoded 12-byte AES-GCM IV for this chunk (set when encryption is enabled) */
+  /** Byte offset in the original file where this chunk starts */
+  byteOffset: number;
+  /** Size of this chunk in bytes (before base64 encoding) */
+  byteLength: number;
+  /** Base64-encoded 12-byte AES-GCM IV for this chunk (reserved for future encryption) */
   iv?: string;
 }
 
+/**
+ * Upload phase — describes what the pipeline is currently doing.
+ * Shown as a human-readable label in the UploadTray.
+ */
+export type UploadPhase =
+  | "preparing"   // reading file metadata, choosing strategy
+  | "hashing"     // computing SHA-256 checksum
+  | "uploading"   // transferring chunks to GitHub
+  | "finalizing"  // committing index record
+  | "syncing";    // background GitHub round-trip
+
+/**
+ * Multi-phase, byte-accurate upload progress model.
+ *
+ * Use `percentage` for the progress bar — it is byte-based and will move
+ * smoothly even with large chunks. Do NOT calculate percentage from
+ * completedChunks/totalChunks.
+ */
 export interface UploadProgress {
   fileId: string;
   filename: string;
-  totalChunks: number;
-  uploadedChunks: number;
+
+  /** Current pipeline phase */
+  phase: UploadPhase;
+
+  /** Backward-compat status for existing consumers */
   status: "hashing" | "dedup" | "uploading" | "indexing" | "done" | "error";
+
+  /** Total file size in bytes */
+  totalBytes: number;
+  /** Bytes fully processed (hashed + prepared) so far */
+  processedBytes: number;
+  /** Bytes confirmed uploaded to GitHub so far */
+  uploadedBytes: number;
+
+  /** Total chunks (1 for single-mode uploads) */
+  totalChunks: number;
+  /** Chunks whose upload request completed successfully */
+  completedChunks: number;
+
+  /** 0–100, byte-based. This is what the progress bar should use. */
+  percentage: number;
+
+  /** Smoothed upload speed in MB/s (undefined until first chunk completes) */
+  speedMbps?: number;
+  /** Estimated seconds to completion (undefined until first chunk completes) */
+  etaSeconds?: number;
+  /** Index of the chunk currently being uploaded (0-based) */
+  currentChunk?: number;
+
   error?: string;
 }
 
