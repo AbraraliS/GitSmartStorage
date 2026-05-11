@@ -11,7 +11,7 @@ import { auth } from "@/auth";
 import { createOctokit, readRemoteIndex, writeRemoteIndex, deleteFile, assertOwner } from "@/lib/github";
 import { searchFiles, removeFileFromIndex } from "@/lib/index";
 import { checkRateLimit } from "@/lib/ratelimit";
-import { withErrorHandler } from "@/lib/error-handler";
+import { withErrorHandler } from "@/lib/api-utils";
 import type { FileRecord, FilterOptions } from "@/types";
 
 export const dynamic = "force-dynamic";

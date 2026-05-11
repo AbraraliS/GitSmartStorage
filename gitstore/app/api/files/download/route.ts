@@ -3,7 +3,7 @@ import { z } from "zod";
 import { auth } from "@/auth";
 import { createOctokit, readRemoteIndex, assertOwner } from "@/lib/github";
 import { checkRateLimit } from "@/lib/ratelimit";
-import { withErrorHandler } from "@/lib/error-handler";
+import { withErrorHandler } from "@/lib/api-utils";
 import { logger } from "@/lib/logger";
 
 export const dynamic = "force-dynamic";

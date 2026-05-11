@@ -14,7 +14,7 @@ const envSchema = z.object({
   NEXTAUTH_URL: z.string().url().optional().or(z.string().length(0)).default("http://localhost:3000"),
   
   // Required for local development with Auth.js v5
-  AUTH_TRUST_HOST: z.string().optional().transform((v) => v === "true" || v === "1").default("false"),
+  AUTH_TRUST_HOST: z.string().optional().transform((v) => v === "true" || v === "1").default(false),
 
   // --- Redis ---
   REDIS_URL: z.string().min(1, "REDIS_URL is required").default("redis://localhost:6379"),
